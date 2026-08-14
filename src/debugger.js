@@ -1,5 +1,5 @@
 const { Opcodes, CompareOpcodes, SystemCalls } = require('./virtual-machine');
-const { Int16, DataspaceEntryType } = require('./types');
+const { Int16, UInt8, DataspaceEntryType } = require('./types');
 
 const topClump = '┏';
 const midClump = '┃';
@@ -310,7 +310,18 @@ module.exports = function makeDebugger(vm) {
         codeString[i] = num + codeString[i];
     }
     
-    setInterval(() => {
+    const left = String(vm.dataspaceUsed -1).length +1;
+    for (let i = vm.dataspaceUsed -1; i >= 0; i--) {
+        let string = vm.dataspaceTable[i].toString()
+            .split('\n')
+            .map((line,i) => (i > 0 ? ' '.repeat(left +2) : '') + line);
+        if (vm.dataspaceTable[i].elementType instanceof UInt8)
+            string = string.slice(0,3);
+        process.stdout.write(`${String(i).padStart(left, ' ')}: (${DataspaceEntryType[vm.dataspaceTable[i].type]}) ${string.join('\n')}\n`);
+    }
+
+    process.stdout.write('\n\n' + codeString.join('\n'));
+    setInterval(() => {/*
         process.stdout.write('\x1b[2J');
         for (const clump of vm.clumps) {
             const realPoint = clump.codeStart + clump.cursor;
@@ -318,5 +329,14 @@ module.exports = function makeDebugger(vm) {
             toOut[2] = `\x1b[${vm.runQueue.includes(clump.id) ? '44' : '41'}m${toOut[Math.min(realPoint, 2)]}\x1b[49m`;
             process.stdout.write(toOut.join('\n') + '\n\n');
         }
+        const left = String(vm.dataspaceUsed -1).length +1;
+        for (let i = vm.dataspaceUsed -1; i >= 0; i--) {
+            let string = vm.dataspaceTable[i].toString()
+                .split('\n')
+                .map((line,i) => (i > 0 ? ' '.repeat(left +2) : '') + line);
+            if (vm.dataspaceTable[i].elementType instanceof UInt8)
+                string = string.slice(0,3);
+            process.stdout.write(`${String(i).padStart(left, ' ')}: (${DataspaceEntryType[vm.dataspaceTable[i].type]}) ${string.join('\n')}\n`);
+        }*/
     }, 1000 / 60);
 }
