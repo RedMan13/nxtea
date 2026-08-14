@@ -80,7 +80,7 @@ class Int8 extends Number {
         if (value & 0x80 && value >= 0)
             return (0xFFFFFF00 | (value & 0xFF)) || 0;
         // else, ignore the last bit and apply the js sign
-        return ((value & 0x7F) * Math.sign(value)) || 0;
+        return ((value < 0 ? 0xFFFFFF80 : 0) | (value & 0x7F)) || 0;
     }
     static bytes(value) {
         if (Math.sign(value) < 0) value |= 0x80;
@@ -115,7 +115,7 @@ class Int16 extends Number {
         if (value > 0x7FFF)
             return (0xFFFF0000 | (value & 0xFFFF)) || 0;
         // else, ignore the last bit and apply the js sign
-        return ((value & 0x7FFF) * Math.sign(value)) || 0;
+        return ((value < 0 ? 0xFFFF8000 : 0) | (value & 0x7FFF)) || 0;
     }
     static bytes(value) {
         if (Math.sign(value) < 0) value |= 0x8000;

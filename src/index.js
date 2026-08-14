@@ -66,7 +66,7 @@ function toPower(num, name) {
         render.draw('Pixel', opts.value, pos.get(0), pos.get(1));
     vm.syscalls[VirtualMachine.SystemCalls.DrawRect] = (ret, pos, size, opts) =>
         render.draw('Rectangle', opts.value, pos.get(0), pos.get(1), size.get(0) +1, size.get(1) +1);
-    vm.syscalls[VirtualMachine.SystemCalls.DrawText] = (ret, pos, text, opts) =>
+    vm.syscalls[VirtualMachine.SystemCalls.DrawText] = (ret, pos, text, opts) => 
         render.draw('TextBox', opts.value, pos.get(0), pos.get(1), text.asString());
     
     // setup communications if needed

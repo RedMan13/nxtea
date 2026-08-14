@@ -321,8 +321,8 @@ module.exports = function makeDebugger(vm) {
     }
 
     process.stdout.write('\n\n' + codeString.join('\n'));
-    setInterval(() => {/*
-        process.stdout.write('\x1b[2J');
+    setInterval(() => {
+        /*process.stdout.write('\x1b[2J');
         for (const clump of vm.clumps) {
             const realPoint = clump.codeStart + clump.cursor;
             const toOut = codeString.slice(realPoint -2, realPoint +3);
