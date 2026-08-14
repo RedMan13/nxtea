@@ -1,0 +1,105 @@
+#define BUFFER_LENGTH 9000
+#define STREAM_WIDTH 20
+#define STREAM_HEIGHT 16
+#define UPSCALE_WIDTH 4
+#define UPSCALE_HEIGHT 4
+int linesIdx = 0;
+int linesOffset = 0;
+int x = 0;
+int y = 0;
+int sta = 0;
+int bufLen = BUFFER_LENGTH;
+int fstatus = 0;
+int repeatLen = 0;
+bool repeatColor = false;
+bool drawUp = false;
+
+void pix(bool on) {
+    int px = ((100 - (STREAM_WIDTH * UPSCALE_WIDTH)) / 2) + (x * UPSCALE_WIDTH);
+    int py = drawUp
+        ? (y -1) * UPSCALE_HEIGHT
+        : 64 - ((y +1) * UPSCALE_HEIGHT);
+    if (!on) {
+        RectOut(px, py, UPSCALE_WIDTH -1, UPSCALE_HEIGHT -1, 32);
+    }
+    x++;
+    if (x >= STREAM_WIDTH) {
+        y++;
+        x = 0;
+    }
+}
+int mapChar(char c) {
+    return c - 63;
+}
+int decodeMark(int c2, int c3) {
+    int high = mapChar(c2);
+    int low = mapChar(c3);
+    int val = (high << 6) | low;
+    return val;
+}
+int decodeChar(byte c1) {
+    return mapChar(c1);
+}
+task main() {
+    byte buf[BUFFER_LENGTH];
+    int lines[400];
+    byte handle;
+    ClearScreen();
+    sta = CurrentTick();
+    for (int i = 1; i < 38; i++) {
+        TextOut(0,LCD_LINE1, "Loading...");
+        string file = StrCat("bad-apple", NumToStr(i), ".txt");
+        bufLen = BUFFER_LENGTH;
+        OpenFileRead(file, bufLen, handle);
+        bufLen = BUFFER_LENGTH;
+        ReadBytes(handle, bufLen, buf);
+        for (int i = 0; i < bufLen; i++) {
+            if (repeatLen > 0) {
+                repeatLen--;
+                i--;
+                pix(repeatColor);
+                continue;
+            }
+            if (y >= STREAM_HEIGHT) y = 0;
+            if (buf[i] == '\n') {
+                linesIdx++;
+                if (linesIdx < 400) lines[linesIdx] = i;
+                int cur = CurrentTick();
+                int len = cur - sta;
+                NumOut(0, LCD_LINE1, len);
+                NumOut(0, LCD_LINE2, cur);
+                NumOut(0, LCD_LINE3, sta);
+                sta = cur;
+                // if (len < 33 && len >= 0) Wait(33 - len);
+                Wait(33);
+                ClearScreen();
+                drawUp = !drawUp;
+                x = 0;
+                y = 0;
+            }
+            switch (buf[i]) {
+            case '-':
+                repeatLen = decodeMark(buf[++i], buf[++i]);
+                repeatColor = false;
+                break;
+            case '!':
+                repeatLen = decodeMark(buf[++i], buf[++i]);
+                repeatColor = true;
+                break;
+            default:
+                int val = decodeChar(buf[i]);
+                if (val < 0) break;
+                pix((val >> 5) & 1);
+                pix((val >> 4) & 1);
+                pix((val >> 3) & 1);
+                pix((val >> 2) & 1);
+                pix((val >> 1) & 1);
+                pix((val >> 0) & 1);
+                break;
+            }
+        }
+        linesOffset += linesIdx;
+        linesIdx = 0;
+        CloseFile(handle);
+    }
+}

@@ -8,8 +8,8 @@ const { requestAnimationFrame, document, canvas, gl } = init({
     resizable: false,
     title: 'NXT Emulator'
 });
-document.width = render.width * 4;
-document.height = render.height * 4;
+document.width = render.width * args.pixelSize;
+document.height = render.height * args.pixelSize;
 document.getElementById = () => {};
 
 const vert = fs.readFileSync(require.resolve('./sprite.vert.glsl'), 'utf8');
@@ -93,7 +93,7 @@ module.exports = document;
     const screenUniforms = {
         size: canvas.wh,
         src: { texture: textureBuffer },
-        scale: [4,4],
+        scale: [args.pixelSize,args.pixelSize],
         pos: [0,0],
         bottomLeft: [screenLeft, screenBottom],
         topRight: [screenRight, screenTop],

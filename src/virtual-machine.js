@@ -240,6 +240,7 @@ class VirtualMachine {
 
     dvaAddress = 0;
     dataspaceTable = [];
+    dataspaceUsed = 0;
     clumps = [];
     codespace = [];
     runQueue = [];
@@ -303,6 +304,7 @@ class VirtualMachine {
             // for now, push these values out to dataspace table
             this.dataspaceTable.push(value);
         }
+        this.dataspaceUsed = metaDat.dataspaceCount;
         if (parents.length)
             throw new StructureError('Dataspace Table of Content has incomplete entries');
         cursor += metaDat.dataspaceCount * VirtualMachine.dataspaceTokenSize;
@@ -664,7 +666,6 @@ class VirtualMachine {
             break;
         }
         case Opcodes.UNFLATTEN:
-            throw new Error('Unimplemented right now cause im lazy');
             break;
         case Opcodes.NUMTOSTRING: {
             const out = this.dataspaceTable[args[0]];
@@ -727,7 +728,7 @@ class VirtualMachine {
         case Opcodes.JMP: {
             const address = this.codespace[clump.codeStart + clump.cursor].address + (Int16.cast(args[0]) *2);
             const target = this.codespace.findIndex(word => word.address === address);
-            if (target < 0) throw new RangeError(`Address ${address} does not exist`);
+            if (target < 0) throw new RangeError(`Address ${address} does not exist (jumping from ${clump.codeStart + clump.cursor} by ${Int16.cast(args[0])})`);
             clump.cursor = (target - clump.codeStart) -1;
             break;
         }
@@ -787,6 +788,7 @@ class VirtualMachine {
             this.runQueue.push(target);
             return false;
         }
+        // @todo add these two
         case Opcodes.ACQUIRE:
             break;
         case Opcodes.RELEASE:
@@ -813,6 +815,7 @@ class VirtualMachine {
                 throw new RangeError(`System call ${SystemCalls[args[0]]} requires ${func.length} arguments, ${elements.length} provided`);
             func.call(this, ...elements);
             break;
+        // @todo add these in
         case Opcodes.SETIN:
             break;
         case Opcodes.SETOUT:
@@ -825,11 +828,12 @@ class VirtualMachine {
         //Family: Timing
         case Opcodes.WAIT:
             const msLength = this.dataspaceTable[args[1]].value;
+            if (msLength < 0) break;
             clump.waitingTill = msLength + Date.now();
             break;
         case Opcodes.GETTICK: {
             const out = this.dataspaceTable[args[0]];
-            const ms = Date.now();
+            const ms = Date.now() - this.start;
             out.value = ms;
             break;
         }

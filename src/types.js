@@ -241,8 +241,8 @@ class DataArray {
     }
     toString(indent = '') {
         return (this.elementType instanceof UInt8) 
-            ? this.asString() 
-            : `[${this._val
+            ? this.asString().split('\n').slice(0,3).join('\n')
+            : `${DataspaceEntryType[this.elementType.type]}[${this._val
                 .map(item => {
                     this.elementType.value = item;
                     return this.elementType.toString(indent);
@@ -291,7 +291,7 @@ class Cluster {
         const base = indent;
         indent += '    ';
         return `{
-${this._val.map((v) => `${indent}${v.id}: ${v.toString(indent)}`).join('\n')}
+${this._val.map((v) => `${indent}${v.id}: (${DataspaceEntryType[v.type]}) ${v.toString(indent)}`).join('\n')}
 ${base}}`;
     }
 }

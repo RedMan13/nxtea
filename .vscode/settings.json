@@ -1,8 +1,11 @@
 {
     "files.associations": {
         "*.iom": "c",
-        "m_sched.h": "c",
         "*.inc": "c",
-        "*.r": "c"
+        "*.r": "c",
+        "*.rms": "c",
+        "*.txt": "c",
+        "*.inl": "c",
+        "*.nxc": "c"
     }
 }

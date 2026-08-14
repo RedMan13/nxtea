@@ -346,9 +346,20 @@ class NXTCommunication extends EventEmitter {
         this.device = device;
         // ensure it is very much absolutely without a shadow of a doubt open
         this.device.open();
+        this.closeWhenReady = false;
+        this.openFileHandles = [];
+        this.openModuleHandles = [];
         // so slow :weary:
         // but, if i dont do it this way js will kill me sooooo
-        setInterval(async () => {
+        this.interval = setInterval(async () => {
+            if (this.closeWhenReady) {
+                // file the requests, dont expect a reply back
+                for (const handle of this.openFileHandles) await this.closeFile(handle, true);
+                for (const handle of this.openModuleHandles) await this.closeModule(handle, true);
+                clearInterval(this.interval);
+                this.device.close();
+                return;
+            }
             const buf = await this.device.transferIn(2, 64);
             if (buf.status === 'babble') throw new Error('NXTs response was to big to handle');
             if (buf.status === 'stall') this.device.clearHalt('in', 2);
@@ -357,6 +368,9 @@ class NXTCommunication extends EventEmitter {
         }, 0);
         this.emit('ready');
         this._resolveReady?.();
+    }
+    close() {
+        this.closeWhenReady = true;
     }
     /**
      * Handle buffer data sent from the nxt to us
@@ -653,13 +667,13 @@ class NXTCommunication extends EventEmitter {
                 break;
             case Commands.writeFile:
                 buffer.writeUInt8(args.handle, 2);
-                args.data.subarray(0, buffer.length - 3).copy(buffer, 3);
+                args.data.copy(buffer, 3, 0, buffer.length - 3);
                 break;
             case Commands.writeIOMap:
                 buffer.writeUInt32LE(args.moduleID, 2);
                 buffer.writeUInt16LE(args.offset, 6);
                 buffer.writeUInt16LE(args.length, 8);
-                args.data.subarray(0, buffer.length - 10).copy(buffer, 10);
+                args.data.copy(buffer, 10, 0, buffer.length - 10);
                 break;
             case Commands.writeMessage:
                 buffer.writeUInt8(args.inbox, 2);
@@ -680,11 +694,16 @@ class NXTCommunication extends EventEmitter {
         });
     }
     makeError(data) {
+        let error;
         if (!data) return;
         if (data.status === Status.success) return;
         if (data.timedout) 
-            throw new Error(`${Commands[data.command]}: NXT Did not respond in under four seconds`);
-        throw new Error(`[${Status[data.status]}]: ${Commands[data.command]}: ${JSON.stringify(data)}`)
+            error = new Error(`${Commands[data.command]}: NXT Did not respond in under four seconds`);
+        error = new Error(`[${Status[data.status]}]: ${Commands[data.command]}: ${JSON.stringify(data)}`);
+        error.status = data.status;
+        error.command = data.command;
+        error.data = data;
+        throw error;
     }
     // here comes the de-verbosed helper functions
     // remote control commands
@@ -941,6 +960,7 @@ class NXTCommunication extends EventEmitter {
     async openReadFile(filename, noReply) {
         const res = await this.send(CommandTypes.system, Commands.openReadFile, { filename }, noReply);
         this.makeError(res);
+        this.openFileHandles.push(res.handle);
         return res;
     }
     /**
@@ -953,6 +973,7 @@ class NXTCommunication extends EventEmitter {
     async openWriteFile(filename, size, noReply) {
         const res = await this.send(CommandTypes.system, Commands.openWriteFile, { filename, size }, noReply);
         this.makeError(res);
+        this.openFileHandles.push(res.handle);
         return res;
     }
     /**
@@ -992,6 +1013,7 @@ class NXTCommunication extends EventEmitter {
     async closeFile(handle, noReply) {
         const res = await this.send(CommandTypes.system, Commands.closeFile, { handle }, noReply);
         this.makeError(res);
+        this.openFileHandles.splice(this.openFileHandles.indexOf(handle), 1);
         return res;
     }
     /**
@@ -1018,6 +1040,7 @@ class NXTCommunication extends EventEmitter {
     async findFile(filename, noReply) {
         const res = await this.send(CommandTypes.system, Commands.findFile, { filename }, noReply);
         this.makeError(res);
+        this.openFileHandles.push(res.handle);
         return res;
     }
     /**
@@ -1058,6 +1081,7 @@ class NXTCommunication extends EventEmitter {
     async openWriteLinearFile(filename, size, noReply) {
         const res = await this.send(CommandTypes.system, Commands.openWriteLinearFile, { filename, size }, noReply);
         this.makeError(res);
+        this.openFileHandles.push(res.handle);
         return res;
     }
     /**
@@ -1069,6 +1093,7 @@ class NXTCommunication extends EventEmitter {
     async openReadLinearFile(filename, noReply) {
         const res = await this.send(CommandTypes.system, Commands.openReadLinearFile, { filename }, noReply);
         this.makeError(res);
+        this.openFileHandles.push(res.handle);
         return res;
     }
     /**
@@ -1081,6 +1106,7 @@ class NXTCommunication extends EventEmitter {
     async openWriteDataFile(filename, size, noReply) {
         const res = await this.send(CommandTypes.system, Commands.openWriteDataFile, { filename, size }, noReply);
         this.makeError(res);
+        this.openFileHandles.push(res.handle);
         return res;
     }
     /**
@@ -1092,6 +1118,7 @@ class NXTCommunication extends EventEmitter {
     async openAppendDataFile(filename, noReply) {
         const res = await this.send(CommandTypes.system, Commands.openAppendDataFile, { filename }, noReply);
         this.makeError(res);
+        this.openFileHandles.push(res.handle);
         return res;
     }
     /**
@@ -1109,6 +1136,7 @@ class NXTCommunication extends EventEmitter {
     async findModule(moduleName, noReply) {
         const res = await this.send(CommandTypes.system, Commands.findModule, { moduleName }, noReply);
         this.makeError(res);
+        this.openFileHandles.push(res.handle);
         return res;
     }
     /**
@@ -1137,6 +1165,7 @@ class NXTCommunication extends EventEmitter {
     async closeModule(handle, noReply) {
         const res = await this.send(CommandTypes.system, Commands.closeModule, { handle }, noReply);
         this.makeError(res);
+        this.openFileHandles.splice(this.openFileHandles.indexOf(handle), 1);
         return res;
     }
     /**
@@ -1267,21 +1296,25 @@ class NXTCommunication extends EventEmitter {
      */
     async downloadFile(filename, data) {
         if (typeof data === 'string') data = Buffer.from(data);
-        await this.deleteFile(filename);
-        const ext = path.extname(filename);
+        await this.deleteFile(filename).catch(err => { if (err.status === Status.fileNotFound) return null; throw err });
+        const ext = path.extname(filename).toLowerCase();
         let handle;
         switch (ext) {
         case '.rxe': case '.sys': case '.rtm': case '.ric':
-            ({handle} = this.openWriteLinearFile(filename, data.length)); break;
         case '.rdt':
-            ({handle} = this.openWriteDataFile(filename, data.length)); break;
+            ({handle} = this.openWriteDataFile(filename, Math.ceil(data.length / 61) * 61)); break;
         default:
-            ({handle} = this.openWriteFile(filename, data.length)); break;
+            ({handle} = this.openWriteFile(filename, Math.ceil(data.length / 61) * 61)); break;
         }
         let offset = 0;
-        while ((data.length - offset) > 61) {
-            const { length } = await this.writeFile(handle, data);
+        let lastLen = data.length;
+        while ((data.length - offset) > 0) {
+            const padded = Buffer.alloc(lastLen);
+            data.copy(padded, 0, offset);
+            const { length, handle: newHandle } = await this.writeFile(handle, padded);
+            handle = newHandle;
             offset += length;
+            lastLen = length;
         }
         await this.closeFile(handle);
     }
@@ -1295,12 +1328,15 @@ class NXTCommunication extends EventEmitter {
         length ||= size;
         const res = Buffer.alloc(length);
         let offset = 0;
-        while ((length - offset) > 58) {
+        let lastLength = 58
+        while (length - offset) {
             // not explicitly supported, but pFlash never gets reset so we end up
             // reading forward in the file on each step
-            const { resLength, data } = await this.readFile(handle, length);
+            const { length: resLength, data, handle: newHandle } = await this.readFile(handle, Math.min(length - offset, lastLength));
+            handle = newHandle;
             data.copy(res, offset);
             offset += resLength;
+            lastLength = resLength
         }
         await this.closeFile(handle);
         return res;
