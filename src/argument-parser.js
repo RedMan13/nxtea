@@ -11,6 +11,7 @@ function clean(str) {
  */
 module.exports = function parseArgs(keys, argv) {
     const props = Object.fromEntries(Object.entries(keys).map(([k,v]) => [k,v[1]]));
+    props['?'] = props['help'] = { noValue: true };
     const lookup = { '?': 'help', 'help': 'help' };
     for (const [k,v] of Object.entries(keys)) {
         for (const varient of v[0]) {

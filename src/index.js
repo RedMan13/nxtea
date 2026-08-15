@@ -74,6 +74,12 @@ function toPower(num, name) {
         /** @type {NXTCommunication} */
         let comms;
         let info;
+        process.on('uncaughtException', async err => {
+            if (comms) await comms.close();
+            console.error(err);
+            process.exit(-1);
+        });
+
         if (typeof args.target === 'string') {
             const devices = await NXTCommunication.listDevices();
             for (const toCheck of devices) {
@@ -116,8 +122,8 @@ function toPower(num, name) {
                 const isDir = fs.statSync(file).isDirectory();
                 if (isDir) {
                     const files = fs.readdirSync(file);
-                    for (const file of files) {
-                        const real = path.resolve(file, file);
+                    for (const name of files) {
+                        const real = path.resolve(file, name);
                         if (fs.statSync(real).isDirectory()) continue;
                         await comms.downloadFile(file, fs.readFileSync(real));
                     }
@@ -131,7 +137,7 @@ function toPower(num, name) {
             for (const file of args.download) {
                 const { handle, filename, size } = await comms.findFile(file);
                 await comms.closeFile(handle);
-                fs.riteFileSync(filename, await comms.uploadFile(filename, size));
+                fs.writeFileSync(filename, await comms.uploadFile(filename, size));
             }
         }
         if (args.delete) {

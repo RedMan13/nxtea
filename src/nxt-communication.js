@@ -2,6 +2,43 @@ const { WebUSB } = require('usb');
 const path = require('path');
 const EventEmitter = require('events');
 const usb = new WebUSB({ allowAllDevices: true });
+// const { BluetoothSerialPort } = require("node-bluetooth-serial-port");
+
+// const address = '00:16:53:18:0A:76'
+//     btSerial.findSerialPortChannel(
+//         address,
+//         function (channel) {
+//             btSerial.connect(
+//                 address,
+//                 channel,
+//                 function () {
+//                     console.log("connected");
+
+//                     btSerial.write(
+//                         Buffer.from("my data", "utf-8"),
+//                         function (err, bytesWritten) {
+//                             if (err) console.log(err);
+//                         }
+//                     );
+
+//                     btSerial.on("data", function (buffer) {
+//                         console.log(buffer.toString("utf-8"));
+//                     });
+//                 },
+//                 function () {
+//                     console.log("cannot connect");
+//                 }
+//             );
+
+//             // close the connection when you're ready
+//             btSerial.close();
+//         },
+//         function () {
+//             console.log("found nothing");
+//         }
+//     );
+
+// btSerial.inquire();
 
 /**
  * @typedef {{ status: Status, command: Commands, [key: string]: any }} CommandReturn
@@ -353,10 +390,8 @@ class NXTCommunication extends EventEmitter {
         // but, if i dont do it this way js will kill me sooooo
         this.interval = setInterval(async () => {
             if (this.closeWhenReady) {
-                // file the requests, dont expect a reply back
-                for (const handle of this.openFileHandles) await this.closeFile(handle, true);
-                for (const handle of this.openModuleHandles) await this.closeModule(handle, true);
                 clearInterval(this.interval);
+                await this.device.reset();
                 this.device.close();
                 return;
             }
@@ -369,8 +404,14 @@ class NXTCommunication extends EventEmitter {
         this.emit('ready');
         this._resolveReady?.();
     }
-    close() {
+    async close() {
+        if (!this.device) return;
+        // file the requests, dont expect a reply back
+        for (const handle of this.openFileHandles) await this.closeFile(handle, true);
+        for (const handle of this.openModuleHandles) await this.closeModule(handle, true);
         this.closeWhenReady = true;
+        // send a simple, useless, request to unlock device closure
+        this.getBattery();
     }
     /**
      * Handle buffer data sent from the nxt to us
@@ -586,7 +627,7 @@ class NXTCommunication extends EventEmitter {
      */
     send(type, command, args, noReply) {
         return new Promise(async (resolve, reject) => {
-            const buffer = Buffer.alloc(64);
+            let buffer = Buffer.alloc(64);
             buffer.writeUInt8(type | (noReply ? 0x80 : 0), 0);
             buffer.writeUInt8(command, 1);
             switch (command) {
@@ -668,6 +709,13 @@ class NXTCommunication extends EventEmitter {
             case Commands.writeFile:
                 buffer.writeUInt8(args.handle, 2);
                 args.data.copy(buffer, 3, 0, buffer.length - 3);
+                // shrinkwrap the size of the file write
+                // we should probably really be doing this everywhere, but its currently easier to only do this here with file writes
+                if (args.data.length < (buffer.length -3)) {
+                    const newBuffer = Buffer.alloc(args.data.length +3);
+                    buffer.copy(newBuffer, 0, 0, newBuffer.length);
+                    buffer = newBuffer;
+                }
                 break;
             case Commands.writeIOMap:
                 buffer.writeUInt32LE(args.moduleID, 2);
@@ -699,7 +747,8 @@ class NXTCommunication extends EventEmitter {
         if (data.status === Status.success) return;
         if (data.timedout) 
             error = new Error(`${Commands[data.command]}: NXT Did not respond in under four seconds`);
-        error = new Error(`[${Status[data.status]}]: ${Commands[data.command]}: ${JSON.stringify(data)}`);
+        else
+            error = new Error(`[${Status[data.status]}]: ${Commands[data.command]}: ${JSON.stringify(data)}`);
         error.status = data.status;
         error.command = data.command;
         error.data = data;
@@ -1300,18 +1349,19 @@ class NXTCommunication extends EventEmitter {
         const ext = path.extname(filename).toLowerCase();
         let handle;
         switch (ext) {
-        case '.rxe': case '.sys': case '.rtm': case '.ric':
-        case '.rdt':
-            ({handle} = this.openWriteDataFile(filename, Math.ceil(data.length / 61) * 61)); break;
+        case '.ric': case '.rdt':
+            const dataFileRes = await this.openWriteDataFile(filename, data.length);
+            handle = dataFileRes.handle;
+            break;
         default:
-            ({handle} = this.openWriteFile(filename, Math.ceil(data.length / 61) * 61)); break;
+            const fileRes = await this.openWriteFile(filename, data.length);
+            handle = fileRes.handle;
+            break;
         }
         let offset = 0;
         let lastLen = data.length;
         while ((data.length - offset) > 0) {
-            const padded = Buffer.alloc(lastLen);
-            data.copy(padded, 0, offset);
-            const { length, handle: newHandle } = await this.writeFile(handle, padded);
+            const { length, handle: newHandle } = await this.writeFile(handle, data.subarray(offset, offset + lastLen));
             handle = newHandle;
             offset += length;
             lastLen = length;

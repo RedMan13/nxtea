@@ -78,7 +78,7 @@ class Int8 extends Number {
     static cast(value) {
         // if only the last bit is set, convert to a true negative
         if (value & 0x80 && value >= 0)
-            return (0xFFFFFF00 | (value & 0xFF)) || 0;
+            return (0xFFFFFF80 | (value & 0x7F)) || 0;
         // else, ignore the last bit and apply the js sign
         return ((value < 0 ? 0xFFFFFF80 : 0) | (value & 0x7F)) || 0;
     }
@@ -112,8 +112,8 @@ class Int16 extends Number {
     static cast(value) {
         // the NXT C env seems to treat Int16 as ones-compliment, rather than twos-compliment (int8)
         // so, instead of what we did previously, just impose the bytes into a negative 32bit int
-        if (value > 0x7FFF)
-            return (0xFFFF0000 | (value & 0xFFFF)) || 0;
+        if (value & 0x8000 && value >= 0)
+            return (0xFFFF8000 | (value & 0x7FFF)) || 0;
         // else, ignore the last bit and apply the js sign
         return ((value < 0 ? 0xFFFF8000 : 0) | (value & 0x7FFF)) || 0;
     }
