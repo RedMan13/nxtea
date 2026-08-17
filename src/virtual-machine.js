@@ -242,7 +242,8 @@ class VirtualMachine {
     dataspaceTable = [];
     dataspaceUsed = 0;
     clumps = [];
-    codespace = [];
+    codespace = Buffer.alloc(0);
+    codewordCache = {};
     runQueue = [];
     name = 'Bad Name';
     syscalls = {};
@@ -389,57 +390,11 @@ class VirtualMachine {
             if (clump.fireCount <= 0) this.runQueue.push(clumpId);
         }
 
-        cursor += cursor % 2;
-        const codespaceStart = cursor;
-        for (let i = 0; i < metaDat.codespaceCount * 2;) {
-            const pack = bin.readUInt16LE(cursor);
-            cursor += 2;
-            const flags = (pack & 0x0F00) >> 8;
-            let size = (pack & 0xF000) >> 12;
-            if (size === 0x0E) {
-                size = bin.readUInt16LE(cursor);
-                // remove the size of the size byte, so we dont over-run cursor 
-                size -= 2;
-                i += 2;
-                cursor += 2;
-            }
-            let opcode = pack & 0x00FF;
-            const cmpOpcode = (pack & 0x0700) >> 8
-            const args = [];
-            // short opcode flag
-            if (flags & 0b1000) {
-                opcode = shortOpcodes[flags & 0b0111];
-                const arg1 = Int8.cast(pack);
-                args.push(arg1);
-                if (size > 2) {
-                    args[0] += bin.readInt16LE(cursor);
-                    // fixy thingy bcause 
-                    args[0] = (args[0] & 0x7F) || 0;
-                    args.push(bin.readUInt16LE(cursor));
-                    cursor += 2;
-                }
-            } else {
-                for (let j = 2; j < size; j += 2, cursor += 2)
-                    args.push(bin.readUInt16LE(cursor));
-            }
-            if (!args.length)
-                throw new StructureError('Instructions can not have no arguments');
-            const codeword = {
-                opcode,
-                cmpOpcode,
-                args,
-                address: (cursor - size) - codespaceStart
-            };
-            this.codespace.push(codeword);
-            i += size;
-        }
-
-        // final patch up to fix clumps using raw byte offsets over array indices
-        for (let i = 0; i < this.clumps.length; i++) {
-            const clump = this.clumps[i];
-            clump.codeStart = this.codespace.findIndex(item => item.address === clump.codeStart);
-            clump.codeEnd = this.codespace.findIndex(item => item.address === clump.codeEnd);
-            if (clump.codeEnd === -1) clump.codeEnd = this.codespace.length;
+        this.codespace = bin.subarray(cursor);
+        let endAddress = 0;
+        while (endAddress < this.codespace.length) {
+            const word = this.decodeCodeword(endAddress);
+            endAddress = word.endedAt;
         }
     }
     /**
@@ -452,6 +407,48 @@ class VirtualMachine {
         this.name = name;
         this.parse(bin);
     }
+    decodeCodeword(address) {
+        const start = address;
+        if (!(start in this.codewordCache)) {
+            const pack = this.codespace.readUInt16LE(address); address += 2;
+            const flags = (pack & 0x0F00) >> 8;
+            let size = (pack & 0xF000) >> 12;
+            if (size === 0x0E) {
+                size = this.codespace.readUInt16LE(address); address += 2;
+                // remove the size of the size byte, so we dont over-run cursor 
+                size -= 2;
+            }
+            let opcode = pack & 0x00FF;
+            const cmpOpcode = (pack & 0x0700) >> 8;
+            const args = [];
+            // short opcode flag
+            if (flags & 0b1000) {
+                opcode = shortOpcodes[flags & 0b0111];
+                if (!opcode) debugger;
+                const arg1 = Int8.cast(pack);
+                args.push(arg1);
+                if (size > 2) {
+                    const arg2 = this.codespace.readInt16LE(address); address += 2;
+                    // fixy thingy bcause 
+                    args[0] = Int8.cast(arg1 + arg2);
+                    args.push(arg2);
+                }
+            } else {
+                for (let j = 2; j < size; j += 2, address += 2)
+                    args.push(this.codespace.readInt16LE(address));
+            }
+            if (!args.length)
+                throw new StructureError('Instructions can not have no arguments');
+            this.codewordCache[start] = {
+                opcode,
+                cmpOpcode,
+                args,
+                endedAt: address,
+                length: address - start
+            }
+        }
+        return this.codewordCache[start];
+    }
     /** Step the interpreter by one instruction */
     step() {
         for (let i = 0; i < this.runQueue.length; i++) {
@@ -463,13 +460,13 @@ class VirtualMachine {
                 if (!isNaN(clump.waitingTill) && Date.now() < clump.waitingTill) continue;
                 clump.waitingTill = NaN;
                 const cursor = clump.codeStart + clump.cursor;
-                const codeword = this.codespace[cursor];
+                const codeword = this.decodeCodeword(cursor);
                 let keep = this.execute(clump, codeword);
-                clump.cursor++;
+                if ((clump.cursor + clump.codeStart) === cursor) clump.cursor += codeword.length;
                 if ((clump.codeStart + clump.cursor) >= clump.codeEnd) {
                     keep = false;
                     // reset cursor nomatter what, as we are at the end of the clump
-                    clump.cursor = -1;
+                    clump.cursor = 0;
                 }
                 if (!keep) {
                     // dequeue any instructions that resulted in a completion
@@ -554,7 +551,6 @@ class VirtualMachine {
         }
     }
     execute(clump, { opcode, cmpOpcode, args }) {
-        // console.log(clump.id, clump.cursor + clump.codeStart, Object.entries(Opcodes).find(op => opcode === op[1])[0], ...(args));
         switch (opcode) {
         //Family: Math
         case Opcodes.ADD:
@@ -725,25 +721,16 @@ class VirtualMachine {
             break;
 
         //Family: Control flow
-        case Opcodes.JMP: {
-            const address = this.codespace[clump.codeStart + clump.cursor].address + (Int16.cast(args[0]) *2);
-            const target = this.codespace.findIndex(word => word.address === address);
-            if (target < 0) throw new RangeError(`Address ${address} does not exist (jumping from ${clump.codeStart + clump.cursor} by ${Int16.cast(args[0])})`);
-            clump.cursor = (target - clump.codeStart) -1;
+        case Opcodes.JMP:
+            clump.cursor += args[0] *2;
             break;
-        }
         case Opcodes.BRCMP: {
             const tmp = this.dataspaceTable.push(new Int8(0, 0)) -1;
             // to lazy rn to split this function and replicate the actual vm behavior by doing so
             this.handlePolyOp(Opcodes.CMP, cmpOpcode, [tmp, args[1], args[2]]);
             const res = this.dataspaceTable[tmp].value;
             delete this.dataspaceTable[tmp];
-            if (res) {
-                const address = this.codespace[clump.codeStart + clump.cursor].address + (Int16.cast(args[0]) *2);
-                const target = this.codespace.findIndex(word => word.address === address);
-                if (target < 0) throw new RangeError(`Address ${address} does not exist`);
-                clump.cursor = (target - clump.codeStart) -1;
-            }
+            if (res) clump.cursor += args[0] *2;
             break;
         }
         case Opcodes.BRTST: {
@@ -752,18 +739,13 @@ class VirtualMachine {
             this.handlePolyOp(Opcodes.TST, cmpOpcode, [tmp, args[1]]);
             const res = this.dataspaceTable[tmp].value;
             delete this.dataspaceTable[tmp];
-            if (res) {
-                const address = this.codespace[clump.codeStart + clump.cursor].address + (Int16.cast(args[0]) *2);
-                const target = this.codespace.findIndex(word => word.address === address);
-                if (target < 0) throw new RangeError(`Address ${address} does not exist`);
-                clump.cursor = (target - clump.codeStart) -1;
-            }
+            if (res) clump.cursor += args[0] *2;
             break;
         }
         case Opcodes.STOP: {
             const should = this.dataspaceTable[args[0]]?.value ?? true;
             if (should) {
-                clump.cursor = -1;
+                clump.cursor = 0;
                 return false;
             }
             break;
@@ -773,7 +755,7 @@ class VirtualMachine {
         case Opcodes.FINCLUMP: {
             const start = Int16.cast(args[0]);
             const end = Int16.cast(args[1]);
-            clump.cursor = -1;
+            clump.cursor = 0;
             if (start === -1 || end === -1) return false;
             for (let i = start; i < end; i++) {
                 if (!clump.dependants[i]) break;
@@ -783,7 +765,7 @@ class VirtualMachine {
         }
         case Opcodes.FINCLUMPIMMED: {
             const target = args[0];
-            clump.cursor = -1;
+            clump.cursor = 0;
             if (!this.clumps[target]) return false;
             this.runQueue.push(target);
             return false;
@@ -801,7 +783,7 @@ class VirtualMachine {
             return false;
         case Opcodes.SUBRET:
             const clumpId = this.dataspaceTable[args[0]].value;
-            clump.cursor = -1;
+            clump.cursor = 0;
             this.runQueue.push(clumpId);
             return false;
 

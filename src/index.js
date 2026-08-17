@@ -5,6 +5,7 @@ global.args = parseArgs({
     colorOn: [['F'], { default: '0,0,0,255', match: /[0-9]+,[0-9]+,[0-9]+,[0-9]+/i }, 'The color that should be used for pixels that are turned on, as a RGBA CSV.'],
     colorOff: [['B'], { default: '18,41,18,255', match: /[0-9]+,[0-9]+,[0-9]+,[0-9]+/i }, 'The color that should be used for the background/turned off pixels, as a RGBA CSV.'],
     pixelSize: [['P', 's'], { default: 4, match: /[0-9]+/i }, 'The size that each pixel should be for the screen.'],
+    bluetooth: [['b'], { default: false, noValue: true }, 'Sets if bluetooth should be selected normally. Will hang the program if no bluetooth nor usb devices exist to connect with.'],
     target: [['t'], {  }, 'Sets up a connection with an NXT brick over USB, if unset it will just be the first recognisable devices, otherwise it is one of usb device id, bluetooth address, or NXT name.'],
     capture: [['c'],  { needs: ['target'], default: false, noValue: true }, 'If we should be using captured frames from the NXT instead of running the executable, if a file is provided anyways the file will be uploaded to the NXT and ran.'],
     pollRate: [['p'], { default: 260, match: /[0-9]+/i }, 'For capture. The milisecond interval that we should poll the NXT screen at.'],
@@ -90,7 +91,16 @@ function toPower(num, name) {
                 if (info.bluetoothAddress === args.target) break;
                 if (info.name === args.target) break;
             }
+            if (args.bluetooth) {
+                if (!comms) {
+                    const serial = await NXTCommunication.bluetoothSearch(args.target);
+                    comms = new NXTCommunication(serial, root, vm);
+                }
+                if (!comms.btSerial) await comms.upgrade().catch(() => console.warn('Couldnt upgrade connection to bluetooth.'));
+                console.log('Finished bluetooth connection');
+            }
         }
+
         comms ??= new NXTCommunication(null, root, vm); await comms.ready;
         info ??= await comms.deviceInfo();
         console.log('Connected to', info.name);
@@ -113,9 +123,19 @@ function toPower(num, name) {
             while (true) {
                 const { filename, size } = await comms.findNextFile(handle).catch(err => { if (err.status === NXTCommunication.Status.fileNotFound) return err.data; throw err });
                 if (!filename) break;
-                console.log(filename, toPower(size, 'b'));
+                console.log(filename, '\t', toPower(size, 'b'));
             }
             await comms.closeFile(handle);
+            console.log('');
+            const { handle: module, name, mapSize, moduleID } = await comms.findModule('*.*');
+            await comms.closeModule(module);
+            console.log(name, moduleID.toString(16).padStart(8, '0'), toPower(mapSize, 'b'));
+            while (true) {
+                const { name, mapSize, moduleID } = await comms.findNextModule(module).catch(err => { if (err.status === NXTCommunication.Status.moduleNotFound) return err.data; throw err });
+                if (!name) break;
+                console.log(name, '\t', moduleID.toString(16).padStart(8, '0'), '\t', toPower(mapSize, 'b'));
+            }
+            await comms.closeModule(module);
         }
         if (args.upload) {
             for (const file of args.upload) {
@@ -125,7 +145,7 @@ function toPower(num, name) {
                     for (const name of files) {
                         const real = path.resolve(file, name);
                         if (fs.statSync(real).isDirectory()) continue;
-                        await comms.downloadFile(file, fs.readFileSync(real));
+                        await comms.downloadFile(name, fs.readFileSync(real));
                     }
                 } else {
                     const parsed = path.parse(file);
@@ -147,12 +167,13 @@ function toPower(num, name) {
         if (args.capture) {
             const document = require('./render');
             if (args.executable) {
+                await comms.stopProgram().catch(() => {});
                 await comms.downloadFile('nxtea-copy.rxe', fs.readFileSync(args.executable));
                 await comms.startProgram('nxtea-copy.rxe');
             }
-            const { moduleID: displayId, handle: display } = await comms.findModule('Display.*');
+            const { moduleID: displayId, handle: display } = await comms.findModule('Comm.*');
             await comms.closeModule(display);
-            if (!comms.checkModule(displayId, { id: NXTCommunication.ModuleIds.display }))
+            if (!comms.checkModule(displayId, { id: NXTCommunication.ModuleIds.comm }))
                 throw new Error('Could not get the display module from the NXT');
             const { moduleID: uiID, handle: ui } = await comms.findModule('Ui.*');
             await comms.closeModule(ui);
@@ -185,7 +206,7 @@ function toPower(num, name) {
             }
             (async function getFrame() {
                 const start = Date.now();
-                let offset = 119;
+                let offset = 0;
                 let requested = 800;
                 while (requested > 0) {
                     const { data, length } = await comms.readIOMap(displayId, offset, requested);
@@ -228,7 +249,7 @@ function toPower(num, name) {
         } else {
             const data = fs.readFileSync(args.executable);
             vm.load(data, args.executable);
-            makeDebugger(vm);
+            // makeDebugger(vm);
             let inter;
             inter = setInterval(() => {
                 vm.step();
