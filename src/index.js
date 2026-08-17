@@ -96,8 +96,8 @@ function toPower(num, name) {
                     const serial = await NXTCommunication.bluetoothSearch(args.target);
                     comms = new NXTCommunication(serial, root, vm);
                 }
-                if (!comms.btSerial) await comms.upgrade().catch(() => console.warn('Couldnt upgrade connection to bluetooth.'));
-                console.log('Finished bluetooth connection');
+                if (!comms.btSerial) await comms.upgrade().catch(err => console.warn('Couldnt upgrade connection to bluetooth.', err.message));
+                if (comms.btSerial) console.log('Finished bluetooth connection');
             }
         }
 
@@ -171,9 +171,9 @@ function toPower(num, name) {
                 await comms.downloadFile('nxtea-copy.rxe', fs.readFileSync(args.executable));
                 await comms.startProgram('nxtea-copy.rxe');
             }
-            const { moduleID: displayId, handle: display } = await comms.findModule('Comm.*');
+            const { moduleID: displayId, handle: display } = await comms.findModule('Display.*');
             await comms.closeModule(display);
-            if (!comms.checkModule(displayId, { id: NXTCommunication.ModuleIds.comm }))
+            if (!comms.checkModule(displayId, { id: NXTCommunication.ModuleIds.display }))
                 throw new Error('Could not get the display module from the NXT');
             const { moduleID: uiID, handle: ui } = await comms.findModule('Ui.*');
             await comms.closeModule(ui);
@@ -206,7 +206,7 @@ function toPower(num, name) {
             }
             (async function getFrame() {
                 const start = Date.now();
-                let offset = 0;
+                let offset = 119;
                 let requested = 800;
                 while (requested > 0) {
                     const { data, length } = await comms.readIOMap(displayId, offset, requested);

@@ -413,10 +413,10 @@ class NXTCommunication extends EventEmitter {
         const { bluetoothAddress: address } = await this.deviceInfo();
         const serial = new BluetoothSerialPort();
         const channel = await new Promise((resolve, reject) => serial.findSerialPortChannel(address, resolve, reject))
-            .catch(() => Promise.reject(new Error('Device not found')));
+            .catch(err => Promise.reject(new Error('Device not found', { cause: err })));
         await new Promise((resolve, reject) => serial.connect(address, channel, resolve, reject));
 
-        this._initDevice(serial);
+        await this._initDevice(serial);
     }
     /**
      * Handle buffer data sent from the nxt to us
