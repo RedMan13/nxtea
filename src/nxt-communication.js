@@ -2,7 +2,7 @@ const { WebUSB } = require('usb');
 const path = require('path');
 const EventEmitter = require('events');
 const usb = new WebUSB({ allowAllDevices: true });
-// const { BluetoothSerialPort } = require("node-bluetooth-serial-port");
+const { BluetoothSerialPort } = require("node-bluetooth-serial-port");
 
 // const address = '00:16:53:18:0A:76'
 //     btSerial.findSerialPortChannel(
@@ -354,8 +354,28 @@ class NXTCommunication extends EventEmitter {
         return usb.getDevices()
             .then(devices => devices.filter(device => device.vendorId === 0x0694 && device.productId === 0x0002));
     }
+    static bluetoothSearch(target) {
+        return new Promise(resolve => {
+            const serial = new BluetoothSerialPort();
+            serial.on('found', async (address, name) => {
+                if (name !== target) return;
+                const channel = await new Promise((resolve, reject) => serial.findSerialPortChannel(address, resolve, reject))
+                    .catch(() => Promise.reject(new Error('Device not found')));
+                await new Promise((resolve, reject) => serial.connect(address, channel, resolve, reject));
+            });
+            serial.inquire();
+            // nodejs will not truly halt for us if we dont wrong resolve in some kind of low-level callback
+            const int = setInterval(() => {
+                if (!serial.isOpen()) return;
+                clearInterval(int);
+                resolve(serial);
+            })
+        });
+    }
     /** @type {USBDevice} */
     device = null;
+    /** @type {BluetoothSerialPort} */
+    btSerial = null;
     root = process.cwd();
     /** If this comm handler should allow external devices read/write access to the local systems filesystem */
     enableFileAccess = false;
@@ -364,6 +384,7 @@ class NXTCommunication extends EventEmitter {
     ready = Promise.resolve();
     /** @type {Function?} */
     _resolveReady = null;
+    
     
     /**
      * @param {USBDevice?} device The device to interface with, if unset it will be the first valid device
@@ -380,6 +401,13 @@ class NXTCommunication extends EventEmitter {
             .then(device => this._initDevice(device));
     }
     async _initDevice(device) {
+        if (device instanceof BluetoothSerialPort) {
+            this.btSerial = device;
+            this.btSerial.on('data', data => this._recieve(data));
+            this.emit('ready');
+            this._resolveReady?.();
+            return;
+        }
         this.device = device;
         // ensure it is very much absolutely without a shadow of a doubt open
         this.device.open();
@@ -410,8 +438,24 @@ class NXTCommunication extends EventEmitter {
         for (const handle of this.openFileHandles) await this.closeFile(handle, true);
         for (const handle of this.openModuleHandles) await this.closeModule(handle, true);
         this.closeWhenReady = true;
+        if (this.btSerial) {
+            this.btSerial.close();
+            this.btSerial = null;
+        }
         // send a simple, useless, request to unlock device closure
         this.getBattery();
+    }
+    async upgrade() {
+        const { bluetoothAddress: address } = await this.deviceInfo();
+        const serial = new BluetoothSerialPort();
+        const channel = await new Promise((resolve, reject) => serial.findSerialPortChannel(address, resolve, reject))
+            .catch(() => Promise.reject(new Error('Device not found')));
+        await new Promise((resolve, reject) => serial.connect(address, channel, resolve, reject));
+
+            comms.btSerial.write(Buffer.from([0b10101010, 0b01010101, 0b10101010, 0b01010101, 0b10101010, 0b01010101, 0b10101010, 0b01010101, 0b10101010, 0b01010101, 0b10101010, 0b01010101, 0b10101010, 0b01010101, 0b10101010, 0b01010101, 0b10101010, 0b01010101, 0b10101010, 0b01010101, 0b10101010, 0b01010101, 0b10101010, 0b01010101]), console.log);
+            return
+
+        this._initDevice(serial);
     }
     /**
      * Handle buffer data sent from the nxt to us
@@ -462,7 +506,7 @@ class NXTCommunication extends EventEmitter {
                 case Commands.deviceInfo:
                     Object.assign(event, {
                         name: asciiz(buf, 3, 18),
-                        bluetoothAddress: buf.subarray(18, 25).toString('hex'),
+                        bluetoothAddress: [...buf.subarray(18, 24)].map(v => v.toString(16).padStart(2, '0')).join(':').toUpperCase(),
                         channelQualities: [buf.readUInt8(25), buf.readUInt8(26), buf.readUInt8(27), buf.readUInt8(28)],
                         availableFlash: buf.readUInt32LE(29)
                     });
@@ -627,18 +671,22 @@ class NXTCommunication extends EventEmitter {
      */
     send(type, command, args, noReply) {
         return new Promise(async (resolve, reject) => {
-            let buffer = Buffer.alloc(64);
-            buffer.writeUInt8(type | (noReply ? 0x80 : 0), 0);
-            buffer.writeUInt8(command, 1);
+            let buffer = Buffer.alloc(2);
             switch (command) {
-            case Commands.bootBrick: buffer.write('Let\'s dance: SAMBA\0', 2, 'ascii'); break;
+            case Commands.bootBrick:
+                buffer = Buffer.alloc(21);
+                buffer.write('Let\'s dance: SAMBA\0', 2, 'ascii');
+                break;
             case Commands.findNextModule:
             case Commands.findNextFile: 
             case Commands.closeModule:
-            case Commands.closeFile: buffer.writeUInt8(args.handle, 2); break;
+            case Commands.closeFile:
+                buffer = Buffer.alloc(3);
+                buffer.writeUInt8(args.handle, 2); break;
             case Commands.openWriteLinearFile:
             case Commands.openWriteFile:
             case Commands.openWriteDataFile:
+                buffer = Buffer.alloc(26);
                 buffer.write(args.filename.slice(0, 19) + '\0', 2, 'ascii');
                 buffer.writeUInt32LE(args.size, 22);
                 break;
@@ -647,57 +695,82 @@ class NXTCommunication extends EventEmitter {
             case Commands.openReadFile:
             case Commands.openAppendDataFile:
             case Commands.deleteFile:
-            case Commands.findFile: buffer.write(args.filename.slice(0, 19) + '\0', 2, 'ascii'); break;
-            case Commands.findModule: buffer.write(args.moduleName.slice(0, 19) + '\0', 2, 'ascii'); break;
+            case Commands.findFile:
+                buffer = Buffer.alloc(22);
+                buffer.write(args.filename.slice(0, 19) + '\0', 2, 'ascii');
+                break;
+            case Commands.findModule:
+                buffer = Buffer.alloc(22);
+                buffer.write(args.moduleName.slice(0, 19) + '\0', 2, 'ascii');
+                break;
             case Commands.getInput:
             case Commands.getOutput:
             case Commands.lowspeedRead:
             case Commands.lowspeedStatus:
-            case Commands.clearInput: buffer.writeUInt8(args.port, 2); break;
+            case Commands.clearInput:
+                buffer = Buffer.alloc(3);
+                buffer.writeUInt8(args.port, 2);
+                break;
             case Commands.lowspeedWrite:
+                buffer = Buffer.alloc(5 + args.data.length);
                 buffer.writeUInt8(args.port, 2);
                 buffer.writeUInt8(args.lengthSent, 3);
                 buffer.writeUInt8(args.lengthRecieved, 4);
-                args.data.subarray(0, buffer.length - 5).copy(buffer, 5);
+                args.data.copy(buffer, 5);
                 break;
             case Commands.messageRead:
+                buffer = Buffer.alloc(5);
                 buffer.writeUInt8(args.remoteInbox, 2);
                 buffer.writeUInt8(args.inbox, 3);
                 buffer.writeUInt8(args.shouldRemove, 4);
                 break;
             case Commands.playSound: 
+                buffer = Buffer.alloc(20);
                 buffer.writeUInt8(args.loop ? 1 : 0, 2);
                 buffer.write(args.filename.slice(0, 19) + '\0', 3, 'ascii');
                 break;
             case Commands.playTone:
+                buffer = Buffer.alloc(6);
                 buffer.writeUInt16LE(args.frequency, 2);
                 buffer.writeUInt16LE(args.duration, 4);
                 break;
             case Commands.poll:
+                buffer = Buffer.alloc(4);
                 buffer.writeUInt8(args.buffer, 2);
-                buffer.writeUInt8(args.length);
+                buffer.writeUInt8(args.length, 3);
                 break;
-            case Commands.pollLength: buffer.writeUInt8(args.buffer, 2); break;
+            case Commands.pollLength:
+                buffer = Buffer.alloc(3);
+                buffer.writeUInt8(args.buffer, 2);
+                break;
             case Commands.readFile:
+                buffer = Buffer.alloc(6);
                 buffer.writeUInt8(args.handle, 2);
                 buffer.writeUInt16LE(args.length, 3);
                 break;
             case Commands.readIOMap:
+                buffer = Buffer.alloc(10);
                 buffer.writeUInt32LE(args.moduleID, 2);
                 buffer.writeUInt16LE(args.offset, 6);
                 buffer.writeUInt16LE(args.length, 8);
                 break;
             case Commands.resetMotorPos:
+                buffer = Buffer.alloc(4);
                 buffer.writeUInt8(args.port, 2);
                 buffer.writeUInt8(args.relative ? 1 : 0, 3);
                 break;
-            case Commands.setBrickName: buffer.write(args.name.slice(0, 15) + '\0', 2, 'ascii'); break;
+            case Commands.setBrickName:
+                buffer = Buffer.alloc(17);
+                buffer.write(args.name.slice(0, 15) + '\0', 2, 'ascii');
+                break;
             case Commands.setInput:
+                buffer = Buffer.alloc(5);
                 buffer.writeUInt8(args.port, 2);
                 buffer.writeUInt8(args.type, 3);
                 buffer.writeUInt8(args.mode, 4);
                 break;
             case Commands.setOutput:
+                buffer = Buffer.alloc(12);
                 buffer.writeUInt8(args.port, 2);
                 buffer.writeInt8(args.power, 3);
                 buffer.writeUInt8(args.mode, 4);
@@ -707,38 +780,40 @@ class NXTCommunication extends EventEmitter {
                 buffer.writeUint32LE(args.tachometerLimit, 8);
                 break;
             case Commands.writeFile:
+                buffer = Buffer.alloc(args.data.length + 3);
                 buffer.writeUInt8(args.handle, 2);
-                args.data.copy(buffer, 3, 0, buffer.length - 3);
-                // shrinkwrap the size of the file write
-                // we should probably really be doing this everywhere, but its currently easier to only do this here with file writes
-                if (args.data.length < (buffer.length -3)) {
-                    const newBuffer = Buffer.alloc(args.data.length +3);
-                    buffer.copy(newBuffer, 0, 0, newBuffer.length);
-                    buffer = newBuffer;
-                }
+                args.data.copy(buffer, 3);
                 break;
             case Commands.writeIOMap:
+                buffer = Buffer.alloc(args.data.length + 10);
                 buffer.writeUInt32LE(args.moduleID, 2);
                 buffer.writeUInt16LE(args.offset, 6);
                 buffer.writeUInt16LE(args.length, 8);
-                args.data.copy(buffer, 10, 0, buffer.length - 10);
+                args.data.copy(buffer, 10);
                 break;
             case Commands.writeMessage:
+                buffer = Buffer.alloc(args.message.length + 5);
                 buffer.writeUInt8(args.inbox, 2);
                 buffer.writeUInt8(args.length, 3);
-                buffer.write(args.message.slice(0, 59) + '\0', 4);
+                buffer.write(args.message + '\0', 4);
                 break;
             }
-            await this.device.transferOut(1, buffer);
+            buffer.writeUInt8(type | (noReply ? 0x80 : 0), 0);
+            buffer.writeUInt8(command, 1);
+
+            if (this.btSerial)
+                await new Promise((resolve, reject) => this.btSerial.write(buffer, err => err ? reject(err) : resolve()));
+            else
+                await this.device.transferOut(1, buffer);
             if (noReply) return resolve();
             const handle = res => resolve(res);
             this.once(Commands[command], handle);
             // if we dont recieve a response in time, assume we wont ever recieve a response
-            setTimeout(() => {
-                this.off(Commands[command], handle);
-                // the NXT doesnt actually have any error message for this, sadly
-                resolve({ command, status: Status.undefinedError, timedout: true });
-            }, 4000);
+            // setTimeout(() => {
+            //     this.off(Commands[command], handle);
+            //     // the NXT doesnt actually have any error message for this, sadly
+            //     resolve({ command, status: Status.undefinedError, timedout: true });
+            // }, 4000);
         });
     }
     makeError(data) {
