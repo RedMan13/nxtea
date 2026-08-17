@@ -171,9 +171,9 @@ function toPower(num, name) {
                 await comms.downloadFile('nxtea-copy.rxe', fs.readFileSync(args.executable));
                 await comms.startProgram('nxtea-copy.rxe');
             }
-            const { moduleID: displayId, handle: display } = await comms.findModule('Display.*');
+            const { moduleID: displayId, handle: display } = await comms.findModule('Comm.*');
             await comms.closeModule(display);
-            if (!comms.checkModule(displayId, { id: NXTCommunication.ModuleIds.display }))
+            if (!comms.checkModule(displayId, { id: NXTCommunication.ModuleIds.comm }))
                 throw new Error('Could not get the display module from the NXT');
             const { moduleID: uiID, handle: ui } = await comms.findModule('Ui.*');
             await comms.closeModule(ui);
@@ -206,7 +206,7 @@ function toPower(num, name) {
             }
             (async function getFrame() {
                 const start = Date.now();
-                let offset = 119;
+                let offset = 0;
                 let requested = 800;
                 while (requested > 0) {
                     const { data, length } = await comms.readIOMap(displayId, offset, requested);
