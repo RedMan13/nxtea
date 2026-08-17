@@ -4,42 +4,6 @@ const EventEmitter = require('events');
 const usb = new WebUSB({ allowAllDevices: true });
 const { BluetoothSerialPort } = require("node-bluetooth-serial-port");
 
-// const address = '00:16:53:18:0A:76'
-//     btSerial.findSerialPortChannel(
-//         address,
-//         function (channel) {
-//             btSerial.connect(
-//                 address,
-//                 channel,
-//                 function () {
-//                     console.log("connected");
-
-//                     btSerial.write(
-//                         Buffer.from("my data", "utf-8"),
-//                         function (err, bytesWritten) {
-//                             if (err) console.log(err);
-//                         }
-//                     );
-
-//                     btSerial.on("data", function (buffer) {
-//                         console.log(buffer.toString("utf-8"));
-//                     });
-//                 },
-//                 function () {
-//                     console.log("cannot connect");
-//                 }
-//             );
-
-//             // close the connection when you're ready
-//             btSerial.close();
-//         },
-//         function () {
-//             console.log("found nothing");
-//         }
-//     );
-
-// btSerial.inquire();
-
 /**
  * @typedef {{ status: Status, command: Commands, [key: string]: any }} CommandReturn
  */
@@ -452,9 +416,6 @@ class NXTCommunication extends EventEmitter {
             .catch(() => Promise.reject(new Error('Device not found')));
         await new Promise((resolve, reject) => serial.connect(address, channel, resolve, reject));
 
-            comms.btSerial.write(Buffer.from([0b10101010, 0b01010101, 0b10101010, 0b01010101, 0b10101010, 0b01010101, 0b10101010, 0b01010101, 0b10101010, 0b01010101, 0b10101010, 0b01010101, 0b10101010, 0b01010101, 0b10101010, 0b01010101, 0b10101010, 0b01010101, 0b10101010, 0b01010101, 0b10101010, 0b01010101, 0b10101010, 0b01010101]), console.log);
-            return
-
         this._initDevice(serial);
     }
     /**
@@ -802,7 +763,7 @@ class NXTCommunication extends EventEmitter {
             buffer.writeUInt8(command, 1);
 
             if (this.btSerial)
-                await new Promise((resolve, reject) => this.btSerial.write(buffer, err => err ? reject(err) : resolve()));
+                await new Promise((resolve, reject) => this.btSerial.write(buffer, (err,sen) => err ? reject(err) : console.log(sen, resolve(err))));
             else
                 await this.device.transferOut(1, buffer);
             if (noReply) return resolve();
