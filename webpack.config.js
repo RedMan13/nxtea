@@ -42,8 +42,8 @@ module.exports = {
         new CopyPlugin({
             patterns: [
                 {
-                    from: path.resolve(__dirname, './demo/index.html'),
-                    to: path.resolve(__dirname, output, './index.html')
+                    from: path.resolve(__dirname, './demo/emulator.html'),
+                    to: path.resolve(__dirname, output, './emulator.html')
                 },
                 {
                     from: path.resolve(__dirname, './demo/demo.zip'),
