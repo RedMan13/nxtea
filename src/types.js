@@ -188,7 +188,7 @@ class DataArray {
         return value;
     }
     static bytes(value) {
-        console.warn('Static array byte casting doesnt know what byte sze to cast to!');
+        console.warn('Static array byte casting doesnt know what byte size to cast to!');
         return value.map(item => Number.bytes(item));
     }
     size = DataspaceTypeLength.array;
@@ -198,6 +198,7 @@ class DataArray {
     index = -1;
     _val = [];
     constructor() {}
+    get length() { return this._val.length; }
     get value() { return this._val }
     set value(value) {
         value = DataArray.cast(value);
@@ -206,7 +207,7 @@ class DataArray {
 
     cast(value) { return DataArray.cast(value); }
     bytes() {
-        return this._val.map(value => this.elementType.bytes(value));
+        return this._val.flatMap(value => this.elementType.bytes(value));
     }
     fromBin(bin, offset, data) {
         // static defaults provide us out index value
@@ -272,7 +273,7 @@ class Cluster {
     cast(value) {
         const values = Cluster.cast(value);
         if (values.length !== this._val.length)
-            throw new RangeError(`Cant cast clust of length ${values.length} to a cluster of length ${this._val.length}`);
+            throw new RangeError(`Cant cast cluster of length ${values.length} to a cluster of length ${this._val.length}`);
         return values.map((item, i) => this._val[i].cast(item));
     }
     bytes() { return Cluster.bytes(this._val); }

@@ -1,8 +1,10 @@
-const { WebUSB } = require('usb');
-const path = require('path');
 const EventEmitter = require('events');
-const usb = new WebUSB({ allowAllDevices: true });
-const { BluetoothSerialPort } = require("node-bluetooth-serial-port");
+const usb = !!globalThis.document || globalThis.navigator?.usb
+    ? navigator.usb 
+    : new (require('usb')).WebUSB({ allowAllDevices: true });
+const { BluetoothSerialPort } = !!globalThis.document
+    ? { BluetoothSerialPort: class { constructor() { throw new ReferenceError('Bluetooth unavailable.') } } }
+    : require("node-bluetooth-serial-port");
 
 /**
  * @typedef {{ status: Status, command: Commands, [key: string]: any }} CommandReturn
@@ -762,10 +764,12 @@ class NXTCommunication extends EventEmitter {
             buffer.writeUInt8(type | (noReply ? 0x80 : 0), 0);
             buffer.writeUInt8(command, 1);
 
-            if (this.btSerial)
+            if (this.btSerial) {
                 await new Promise((resolve, reject) => this.btSerial.write(buffer, (err,sen) => err ? reject(err) : console.log(sen, resolve(err))));
-            else
+            } else {
+                buffer = buffer.subarray(0, 64);
                 await this.device.transferOut(1, buffer);
+            }
             if (noReply) return resolve();
             const handle = res => resolve(res);
             this.once(Commands[command], handle);
@@ -1382,21 +1386,15 @@ class NXTCommunication extends EventEmitter {
     async downloadFile(filename, data) {
         if (typeof data === 'string') data = Buffer.from(data);
         await this.deleteFile(filename).catch(err => { if (err.status === Status.fileNotFound) return null; throw err });
-        const ext = path.extname(filename).toLowerCase();
-        let handle;
-        switch (ext) {
-        case '.ric': case '.rdt':
-            const dataFileRes = await this.openWriteDataFile(filename, data.length);
-            handle = dataFileRes.handle;
-            break;
-        default:
-            const fileRes = await this.openWriteFile(filename, data.length);
-            handle = fileRes.handle;
-            break;
-        }
+
+        const openRes = filename.endsWith('.ric') || filename.endsWith('.rdt')
+            ? await this.openWriteDataFile(filename, data.length)
+            : await this.openWriteFile(filename, data.length);
+        let handle = openRes.handle;
         let offset = 0;
         let lastLen = data.length;
         while ((data.length - offset) > 0) {
+            console.log(offset, filename);
             const { length, handle: newHandle } = await this.writeFile(handle, data.subarray(offset, offset + lastLen));
             handle = newHandle;
             offset += length;

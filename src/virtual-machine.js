@@ -1,5 +1,16 @@
 const { StructureError, VersionError } = require('./errors');
-const { DataspaceEntryType, TypeMap, Int8, Int16 } = require('./types');
+const {
+    DataspaceEntryType,
+    TypeMap,
+    Int8,
+    Int16,
+    Int32,
+    UInt8,
+    UInt16,
+    UInt32,
+    DataArray,
+    Cluster
+} = require('./types');
 
 /** @enum copied straight out of c_cmd_bytecodes.h */
 const Opcodes = {
@@ -237,7 +248,18 @@ class VirtualMachine {
     static CompareOpcodes = CompareOpcodes;
     static Opcodes = Opcodes;
     static SystemCalls = SystemCalls;
+    static DataspaceEntryType = DataspaceEntryType;
 
+    static Int8 = Int8;
+    static Int16 = Int16;
+    static Int32 = Int32;
+    static UInt8 = UInt8;
+    static UInt16 = UInt16;
+    static UInt32 = UInt32;
+    static DataArray = DataArray;
+    static Cluster = Cluster;
+    
+    latestExecuted = new Array(200);
     dvaAddress = 0;
     dataspaceTable = [];
     dataspaceUsed = 0;
@@ -406,6 +428,18 @@ class VirtualMachine {
         if (!bin) throw new TypeError('load requires an actual binary file');
         this.name = name;
         this.parse(bin);
+        this.start = Date.now();
+    }
+    clear() {
+        this.runQueue = [];
+        this.latestExecuted = new Array(200);
+        this.dvaAddress = 0;
+        this.dataspaceTable = [];
+        this.dataspaceUsed = 0;
+        this.clumps = [];
+        this.codespace = Buffer.alloc(0);
+        this.codewordCache = {};
+        this.name = 'Bad Name';
     }
     decodeCodeword(address) {
         const start = address;
@@ -450,7 +484,7 @@ class VirtualMachine {
         return this.codewordCache[start];
     }
     /** Step the interpreter by one instruction */
-    step() {
+    async step() {
         for (let i = 0; i < this.runQueue.length; i++) {
             const clumpId = this.runQueue[i];
             if (!this.clumps[clumpId]) 
@@ -461,7 +495,9 @@ class VirtualMachine {
                 clump.waitingTill = NaN;
                 const cursor = clump.codeStart + clump.cursor;
                 const codeword = this.decodeCodeword(cursor);
-                let keep = this.execute(clump, codeword);
+                this.latestExecuted.push(cursor);
+                this.latestExecuted.shift();
+                let keep = await this.execute(clump, codeword);
                 if ((clump.cursor + clump.codeStart) === cursor) clump.cursor += codeword.length;
                 if ((clump.codeStart + clump.cursor) >= clump.codeEnd) {
                     keep = false;
@@ -550,7 +586,7 @@ class VirtualMachine {
             return args[0];
         }
     }
-    execute(clump, { opcode, cmpOpcode, args }) {
+    async execute(clump, { opcode, cmpOpcode, args }) {
         switch (opcode) {
         //Family: Math
         case Opcodes.ADD:
@@ -795,7 +831,7 @@ class VirtualMachine {
             const elements = this.dataspaceTable[args[1]]?.value;
             if (func.length !== elements.length)
                 throw new RangeError(`System call ${SystemCalls[args[0]]} requires ${func.length} arguments, ${elements.length} provided`);
-            func.call(this, ...elements);
+            await func.call(this, ...elements);
             break;
         // @todo add these in
         case Opcodes.SETIN:

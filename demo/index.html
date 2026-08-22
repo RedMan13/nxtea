@@ -1,0 +1,768 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NXTea Demo</title>
+
+    <script>
+        /**
+         * @typedef {object} iNXT The type for the NXT global
+         * @prop {import('./src/virtual-machine.js')} VirtualMachine The virtual machine, for executing.
+         * @prop {import('./src/nxt-communication.js')} NXTCommunication The communication manager.
+         * @prop {import('nxtRICfileUtil')} Renderer The renderer.
+         * @prop {import('jszip')} Filesystems.
+         */
+        /** @type {iNXT} */
+        var NXT = {};
+    </script>
+    <script src="./VirtualMachine.js"></script>
+    <script src="./NXTCommunication.js"></script>
+    <script src="./Renderer.js"></script>
+    <script src="./JSZip.js"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Open+Sans:ital,wght@0,300..800;1,300..800&display=swap');
+
+        html, body { padding: 0; margin: 0; font-family: "Open Sans", sans-serif; }
+        .window {
+            display: flex;
+            gap: 3px;
+            padding: 3px;
+            box-sizing: border-box;
+            width: 100vw;
+            height: 100vh;
+            flex-wrap: wrap;
+        }
+        .header-text { font-weight: bold; }
+        .file-header {
+            display: grid;
+            height: 24px;
+            line-height: 24px;
+            width: 100%;
+            border-bottom: 1px solid grey;
+            grid-template-columns: 1fr 24px 24px 24px 24px;
+            padding-bottom: 2px;
+            margin-bottom: 2px;
+        }
+        .file {
+            display: grid;
+            height: 24px;
+            line-height: 24px;
+            width: 100%;
+            grid-template-columns: 1fr 24px 24px 24px;
+        }
+        .file-button {
+            border: none;
+            padding: 0;
+            background: none;
+            cursor: pointer;
+            border-radius: 2px;
+            height: 24px;
+        }
+        .file-button:hover { background-color: #EFEFEF; }
+        .dataspace {
+            display: grid;
+            grid-template-columns: min-content 1fr;
+            width: 100%;
+        }
+        .dataspace-type { margin-right: 4px; }
+        .row-id { text-align: right; }
+        .row-id::after {
+            content: ':';
+            padding-right: 4px;
+        }
+        .nxt-screen {
+            image-rendering: pixelated;
+            padding-bottom: 6px;
+            box-sizing: border-box;
+        }
+        .add-files {
+            border-top: 1px dashed grey;
+            font-size: 13px;
+            display: inline-block;
+            margin-top: 3px;
+            text-align: center;
+            width: 100%;
+            height: 30px;
+            cursor: pointer;
+        }
+        .add-files::file-selector-button {
+            display: none;
+        }
+        .codespace {
+            display: grid;
+            grid-template-columns: min-content 1fr;
+            width: 100%;
+            height: 100%;
+        }
+        .codespace-render {
+            width: 100%;
+            height: 100%;
+        }
+        .codespace-list {
+            display: flex;
+            flex-direction: column;
+        }
+        .codeword {
+            display: flex;
+            flex-direction: row;
+            gap: 4px;
+        }
+        .codeword-var {
+            border: none;
+            padding: 0;
+            background: none;
+            border-radius: 2px;
+            font-size: 12pt;
+        }
+        .codeword-var:hover { background-color: #EFEFEF; }
+        .hover {
+            border-radius: 2px;
+            background-color: #EFEFEF;
+            border-left: 1px solid grey;
+        }
+        .file-list, .dataspace-list, .codespace-list {
+            box-sizing: border-box;
+            box-shadow: inset 0px 0px 4px grey;
+            border-radius: 10px;
+            padding: 5px;
+            overflow: scroll;
+        }
+        @media (max-width: 100vh) {
+            .window { flex-direction: column; }
+            .nxt-screen { width: 100%; }
+            .file-list { flex-grow: 1; }
+            .dataspace-list { flex-grow: 1; }
+            .codespace-list { flex-grow: 1; }
+        }
+        @media (min-width: 100vh) {
+            .window { flex-direction: row; }
+            .nxt-screen {
+                height: 50%;
+                margin-right: 6px
+            }
+            .file-list {
+                min-width: 20%;
+                height: 50%;
+                flex-grow: 1;
+            }
+            .dataspace-list {
+                width: 49%;
+                height: 50%;
+                flex-grow: 1;
+            }
+            .codespace-list {
+                width: 50%;
+                height: 50%;
+            }
+        }
+        /* there is a single condition where the width equals the height, and at that point the above css fails 
+            to handle this. unset everything that happens for "mobile" screens, since a 1:1 browser window is inredibly 
+            rare and probably not caused by being on mobile.
+        */
+        @media (width: 100vh) {
+            .nxt-screen {
+                width: unset;
+            }
+        }
+    </style>
+</head>
+<body>
+    <a id="file-downloader" hidden></a>
+    <input id="file-selector" type="file" accept="zip,ric,rxe,rso,rdt,txt" multiple hidden>
+    <div class="window">
+        <canvas class="nxt-screen" id="nxt-screen"></canvas>
+        <div class="file-list">
+            <div class="file-header">
+                <span class="header-text">Files</span>
+                <button class="file-button" id="import-zip" title="Import From Zip">
+                    <img src="./assets/upload.svg">
+                </button>
+                <button class="file-button" id="upload-any" title="Upload Files">
+                    <img src="./assets/import.svg">
+                </button>
+                <button class="file-button" id="download-all" title="Download As Zip">
+                    <img src="./assets/download.svg">
+                </button>
+                <button class="file-button" id="delete-all" title="Delete All">
+                    <img src="./assets/delete.svg">
+                </button>
+            </div>
+            <div id="files"></div>
+            <span id="import-files" class="add-files">Add more files</span>
+        </div>
+        <div class="dataspace-list">
+            <div class="file-header">
+                <span class="header-text">Data Space</span>
+            </div>
+            <div id="dataspace"></div>
+        </div>
+        <div class="codespace-list">
+            <div class="file-header">
+                <span class="header-text">Code Space</span>
+            </div>
+            <div class="codespace">
+                <div id="codespace"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let fs;
+        fetch('./demo.zip')
+            .then(req => req.arrayBuffer())
+            .then(NXT.JSZip.loadAsync)
+            .then(async res => {
+                fs = res;
+                const data = await fs.file('demo.rxe').async('nodebuffer');
+                vm.load(data, 'demo.rxe');
+                renderFileSystem();
+            });
+        const render = NXT.Renderer.render;
+        const vm = new NXT.VirtualMachine();
+        setInterval(async () => {
+            if (vm.runQueue.length <= 0) return;
+            try { await vm.step() } catch (err) { console.warn(err); }
+        }, 0);
+        // bind draw calls
+        vm.syscalls[NXT.VirtualMachine.SystemCalls.DrawCircle] = (ret, pos, rad, opts) =>
+            render.draw('Circle', opts.value, pos.get(0), pos.get(1), rad.value);
+        vm.syscalls[NXT.VirtualMachine.SystemCalls.DrawLine] = (ret, pos1, pos2, opts) =>
+            render.draw('Line', opts.value, pos1.get(0), pos1.get(1), pos2.get(0), pos2.get(1));
+        vm.syscalls[NXT.VirtualMachine.SystemCalls.DrawPicture] = async (ret, pos, file, args, opts) => {
+            const ent = fs.file(file);
+            if (!ent) return ret.value = 0x87;
+            const ctx = NXT.Renderer.decodeBinnary(await ent.async('nodebuffer'));
+            render.draw('RICDraw', opts.value, pos.get(0), pos.get(1), ctx, args.slice());
+        }
+        vm.syscalls[NXT.VirtualMachine.SystemCalls.DrawPoint] = (ret, pos, opts) =>
+            render.draw('Pixel', opts.value, pos.get(0), pos.get(1));
+        vm.syscalls[NXT.VirtualMachine.SystemCalls.DrawRect] = (ret, pos, size, opts) =>
+            render.draw('Rectangle', opts.value, pos.get(0), pos.get(1), size.get(0) +1, size.get(1) +1);
+        vm.syscalls[NXT.VirtualMachine.SystemCalls.DrawText] = (ret, pos, text, opts) => 
+            render.draw('TextBox', opts.value, pos.get(0), pos.get(1), text.asString());
+
+        /** @type {{ name: string, write: boolean, cursor: number, data: Buffer, handle: number }[]} */
+        const handles = new Array(16);
+        vm.syscalls[NXT.VirtualMachine.SystemCalls.GetStartTick] = ret => ret.value = vm.start;
+        vm.syscalls[NXT.VirtualMachine.SystemCalls.RandomNumber] = ret => ret.value = Math.floor(Math.random() * 65536);
+        vm.syscalls[NXT.VirtualMachine.SystemCalls.FileOpenRead] = async (ret, handle, filename, length) => {
+            const slot = handles.findIndex(file => !file);
+            if (slot < 0) return ret.value = 0x81;
+            const ent = fs.file(filename.asString());
+            if (!ent) return ret.value = 0x87;
+            handles[slot] = {
+                name: filename.asString(),
+                write: false,
+                cursor: 0,
+                data: await ent.async('nodebuffer'),
+                handle: slot
+            }
+            handle.value = slot;
+            handle.length = handles[slot].data.length
+        }
+        vm.syscalls[NXT.VirtualMachine.SystemCalls.FileOpenWrite] = (ret, handle, filename, length) => {
+            const slot = handles.findIndex(file => !file);
+            if (slot < 0) return ret.value = 0x81;
+            const ent = fs.file(filename.asString());
+            if (!ent) fs.file(filename.asString(), '', { comment: 'cursor:0;' });
+            handles[slot] = {
+                name: filename.asString(),
+                write: true,
+                cursor: 0,
+                data: Buffer.alloc(length),
+                handle: slot
+            }
+            handle.value = slot;
+            handle.length = handles[slot].data.length
+        }
+        vm.syscalls[NXT.VirtualMachine.SystemCalls.FileOpenAppend] = async (ret, handle, filename, length) => {
+            const slot = handles.findIndex(file => !file);
+            if (slot < 0) return ret.value = 0x81;
+            const ent = fs.file(filename.asString());
+            if (!ent) return ret.value = 0x87;
+            if (!/^cursor:[0-9]+;/i.test(ent.comment)) return ret.value = 0x8D;
+            handles[slot] = {
+                name: filename.asString(),
+                write: true,
+                cursor: Number(ent.comment.match(/^cursor:([0-9]+);/i)[1]),
+                data: await ent.async('nodebuffer'),
+                handle: slot
+            }
+            handle.value = slot;
+            handle.length = handles[slot].data.length - handles[slot].cursor;
+        }
+        vm.syscalls[NXT.VirtualMachine.SystemCalls.FileRead] = (ret, handle, out, length) => {
+            if (!handles[handle.value]) return ret.value = 0x93;
+            const ent = handles[handle.value];
+            if (ent.write) return ret.value = 0x93;
+            if (ent.cursor >= ent.data.length) return ret.value = 0x85;
+            const data = ent.data.slice(ent.cursor, ent.cursor + length.value);
+            length.value = data.length;
+            ent.cursor += length.value;
+            out.value = [...data];
+        }
+        vm.syscalls[NXT.VirtualMachine.SystemCalls.FileWrite] = (ret, handle, out, length) => {
+            if (!handles[handle.value]) return ret.value = 0x93;
+            const ent = handles[handle.value];
+            if (!ent.write) return ret.value = 0x93;
+            if (ent.cursor + length.value > ent.data.length)
+                return ret.value = 0x84;
+            ent.data.set(out.value.slice(0, length.value), ent.cursor);
+            ent.cursor += length.value;
+        }
+        vm.syscalls[NXT.VirtualMachine.SystemCalls.FileClose] = (ret, handle) => {
+            if (!handles[handle.value]) return ret.value = 0x93;
+            const ent = handles[handle.value];
+            handles[handle.value] = null;
+            if (!ent.write) return;
+            fs.file(ent, ent.data, { comment: `cursor: ${ent.cursor};` });
+        }
+        vm.syscalls[NXT.VirtualMachine.SystemCalls.FileResolveHandle] = (ret, handle, writable, filename) => {
+            const slot = handles.find(ent => ent.filename === filename.asString());
+            if (!slot) return ret.value = 0x88;
+            handle.value = slot.handle;
+            writable.value = slot.write;
+        }
+        vm.syscalls[NXT.VirtualMachine.SystemCalls.FileRename] = async (ret, oldFilename, newFilename) => {
+            const newEnt = fs.file(newFilename.asString());
+            if (newEnt) return ret.value = 0x8F;
+            const oldEnt = fs.file(oldFilename.asString());
+            if (!oldEnt) return ret.value = 0x87;
+            const data = await oldEnt.async('blob');
+            fs.file(newFilename.asString(), data);
+            fs.remove(oldFilename.asString());
+        }
+        vm.syscalls[NXT.VirtualMachine.SystemCalls.FileDelete] = (ret, filename) => {
+            const ent = fs.file(filename.asString());
+            if (!ent) return ret.value = 0x87;
+            fs.remove(filename.asString());
+        }
+
+        const keys = [
+            { pressed: false, count: 0 },
+            { pressed: false, count: 0 },
+            { pressed: false, count: 0 },
+            { pressed: false, count: 0 }
+        ];
+        vm.syscalls[NXT.VirtualMachine.SystemCalls.ReadButton] = (ret, key, pressed, count, reset) => {
+            const internal = keys[key.value];
+            if (!internal) {
+                ret.value = 0xF0;
+                pressed.value = false;
+                count.value = 0;
+                return;
+            }
+
+            pressed.value = internal.pressed;
+            if (reset.value) internal.count = 0;
+            count.value = internal.count;
+        }
+        document.onkeydown = async e => {
+            switch (e.code) {
+            default: return;
+            case 'ArrowUp':
+            case 'Enter':
+            case 'KeyW': keys[3].pressed = true; keys[2].count++; break;
+            case 'ArrowDown':
+            case 'Escape':
+            case 'KeyS': keys[0].pressed = true; keys[3].count++; break;
+            case 'ArrowLeft':
+            case 'KeyA': keys[2].pressed = true; keys[0].count++; break;
+            case 'ArrowRight':
+            case 'KeyD': keys[1].pressed = true; keys[1].count++; break;
+            }
+        }
+        document.onkeyup = async e => {
+            switch (e.code) {
+            default: return;
+            case 'ArrowUp':
+            case 'Enter':
+            case 'KeyW': keys[3].pressed = false; break;
+            case 'ArrowDown':
+            case 'Escape':
+            case 'KeyS': keys[0].pressed = false; break;
+            case 'ArrowLeft':
+            case 'KeyA': keys[2].pressed = false; break;
+            case 'ArrowRight':
+            case 'KeyD': keys[1].pressed = false; break;
+            }
+        }
+
+        document.getElementById('download-all')
+            .onclick = async () => {
+                const data = await fs.generateAsync({ type: 'blob' });
+                const url = URL.createObjectURL(data);
+                fileDownloader.href = url;
+                fileDownloader.download = 'nxt-files.zip';
+                fileDownloader.click();
+                URL.revokeObjectURL(url);
+            }
+        document.getElementById('delete-all')
+            .onclick = () => {
+                fs.forEach(name => fs.remove(name));
+                renderFileSystem();
+            }
+        document.getElementById('import-files')
+            .onclick = () => fileSelector.click();
+        document.getElementById('upload-any')
+            .onclick = () => fileSelector.click();
+        document.getElementById('import-zip')
+            .onclick = () => { fileSelector.forZip = true; fileSelector.click(); }
+        const fileDownloader = document.getElementById('file-downloader');
+        /** @type {HTMLInputElement} */
+        const fileSelector = document.getElementById('file-selector');
+        fileSelector.onchange = async () => {
+            if (fileSelector.forZips) {
+                fileSelector.forZips = false;
+                await fs.loadAsync(file.arrayBuffer());
+                renderFileSystem();
+                return;
+            }
+
+            for (const file of fileSelector.files) {
+                fs.file(file.name, file.arrayBuffer());
+                const el = renderFile(file.name);
+                fileList.appendChild(el);
+            }
+            renderFileSystem();
+        }
+        const importButton = document.getElementById('import-files');
+        const dataspaceList = document.getElementById('dataspace');
+        const codespace = document.getElementById('codespace');
+        const fileList = document.getElementById('files');
+        const nxtScreen = document.getElementById('nxt-screen');
+        nxtScreen.width = render.width;
+        nxtScreen.height = render.height;
+        const ctx = nxtScreen.getContext('2d');
+
+        function renderFile(name) {
+            const file = document.createElement('div');
+            file.innerHTML = '';
+            file.id = name;
+            file.classList.add('file');
+
+            const title = document.createElement('span');
+            title.innerText = name;
+            file.appendChild(title);
+
+            if (name.endsWith('.rxe')) {
+                if (vm.name === name) {
+                    const stop = document.createElement('button');
+                    stop.classList.add('file-button');
+                    stop.title = 'Run Executable';
+                    const stopImg = new Image();
+                    stopImg.src = './assets/stop.svg';
+                    stop.appendChild(stopImg);
+                    stop.onclick = async () => {
+                        vm.clear();
+                        renderFileSystem();
+                    }
+                    file.appendChild(stop);
+                } else {
+                    const run = document.createElement('button');
+                    run.classList.add('file-button');
+                    run.title = 'Run Executable';
+                    const runImg = new Image();
+                    runImg.src = './assets/execute.svg';
+                    run.appendChild(runImg);
+                    run.onclick = async () => {
+                        const data = await fs.file(name).async('nodebuffer');
+                        vm.clear();
+                        vm.load(data, name);
+                        renderFileSystem();
+                    }
+                    file.appendChild(run);
+                }
+            } else {
+                file.appendChild(document.createElement('div'));
+            }
+
+            const download = document.createElement('button');
+            download.classList.add('file-button');
+            download.title = 'Download File';
+            const downloadImg = new Image();
+            downloadImg.src = './assets/download.svg';
+            download.appendChild(downloadImg);
+            download.onclick = async () => {
+                const data = await fs.file(name).async('blob');
+                const url = URL.createObjectURL(data);
+                fileDownloader.href = url;
+                fileDownloader.download = name;
+                fileDownloader.click();
+                URL.revokeObjectURL(url);
+            }
+            file.appendChild(download);
+
+            const remove = document.createElement('button');
+            remove.classList.add('file-button');
+            remove.title = 'Delete File';
+            const removeImg = new Image();
+            removeImg.src = './assets/delete.svg';
+            remove.appendChild(removeImg);
+            remove.onclick = () => {
+                fs.remove(name);
+                file.remove();
+            }
+            file.appendChild(remove);
+
+            return file;
+        }
+        function renderFileSystem() {
+            fileList.innerHTML = '';
+            fs.forEach(name => {
+                const el = renderFile(name);
+                fileList.appendChild(el);
+            });
+        }
+
+        function renderDataspaceList(dataspace = vm.dataspaceTable, topLevel = true) {
+            const list = document.createElement('div');
+            list.classList.add('dataspace');
+            for (const item of dataspace) {
+                if (!item || (topLevel && item.isChild)) continue;
+                const id = document.createElement('span');
+                id.id = item.id;
+                id.innerText = item.id;
+                id.classList.add('row-id');
+                list.appendChild(id);
+
+                const content = document.createElement('div');
+
+                switch (item.type) {
+                case NXT.VirtualMachine.DataspaceEntryType.array: {
+                    const type = document.createElement('span');
+                    type.classList.add('dataspace-type');
+                    type.innerText = '(' + NXT.VirtualMachine.DataspaceEntryType[item.elementType.type] + ')';
+                    content.appendChild(type);
+
+                    const array = document.createElement('span');
+                    array.classList.add('array-content');
+
+                    switch (item.elementType.type) {
+                    case NXT.VirtualMachine.DataspaceEntryType.ubyte: array.innerText = item.asString(); break;
+                    case NXT.VirtualMachine.DataspaceEntryType.array:
+                    case NXT.VirtualMachine.DataspaceEntryType.cluster:
+                    case NXT.VirtualMachine.DataspaceEntryType.mutex: break;
+                    default: array.innerText = item.value.join(','); break;
+                    }
+
+                    content.appendChild(array);
+                    break;
+                }
+                case NXT.VirtualMachine.DataspaceEntryType.cluster:
+                    content.appendChild(renderDataspaceList(item.value, false));
+                    break;
+                case NXT.VirtualMachine.DataspaceEntryType.mutex: break;
+                default: {
+                    const type = document.createElement('span');
+                    type.classList.add('dataspace-type');
+                    type.innerText = '(' + NXT.VirtualMachine.DataspaceEntryType[item.type] + ')';
+                    content.appendChild(type);
+
+                    const number = document.createElement('span');
+                    number.innerText = item.value;
+                    content.appendChild(number);
+                    break;
+                }
+                }
+
+                list.appendChild(content);
+            }
+
+            return list;
+        }
+
+        function renderVariable(id) {
+            const variable = document.createElement('button');
+            variable.classList.add('codeword-var');
+            variable.innerText = `[${id}]`;
+            variable.onmousedown = () => {
+                const el = document.getElementById(id);
+                el.scrollIntoView();
+            }
+            variable.onmouseover = () => {
+                const el = document.getElementById(id);
+                el.classList.add('hover');
+            }
+            variable.onmouseleave = () => {
+                const el = document.getElementById(id);
+                el.classList.remove('hover');
+            }
+            return variable;
+        }
+        function renderAddress(address) {
+            const spa = document.createElement('span');
+            spa.innerText = '@' + address;
+            return spa;
+        }
+        function renderCodeSpace() {
+            codespace.innerHTML = '';
+            if (!vm.codespace.length) return;
+
+            for (const address of vm.latestExecuted) {
+                const codeword = vm.decodeCodeword(address);
+                const code = document.createElement('div');
+                code.classList.add('codeword')
+                const location = document.createElement('span');
+                location.innerText = address + ':';
+                code.appendChild(location);
+                const opcode = document.createElement('span');
+                opcode.innerText = NXT.VirtualMachine.Opcodes[codeword.opcode];
+                code.appendChild(opcode);
+                let allDatawords = true;
+                switch (codeword.opcode) {    
+                case NXT.VirtualMachine.Opcodes.CMP: {
+                    const cmpOpcode = document.createElement('span');
+                    cmpOpcode.innerText = NXT.VirtualMachine.CompareOpcodes[codeword.cmpOpcode];
+                    code.appendChild(cmpOpcode);
+                    break;
+                }
+                case NXT.VirtualMachine.Opcodes.TST: {
+                    const cmpOpcode = document.createElement('span');
+                    cmpOpcode.innerText = NXT.VirtualMachine.CompareOpcodes[codeword.cmpOpcode];
+                    code.appendChild(cmpOpcode);
+                    break;
+                }
+                case NXT.VirtualMachine.Opcodes.ARRBUILD:
+                    allDatawords = false;
+                    code.appendChild(renderVariable(codeword.args[0]));
+                    const items = document.createElement('span');
+                    items.innerText = `[${codeword.args.slice(1).join(', ')}]`;
+                    code.appendChild(items);
+                    break; 
+                case NXT.VirtualMachine.Opcodes.SET:
+                    allDatawords = false;
+                    code.appendChild(renderVariable(codeword.args[0]));
+                    const constant = document.createElement('span');
+                    constant.innerText = codeword.args[1];
+                    code.appendChild(constant);
+                    break;
+                case NXT.VirtualMachine.Opcodes.JMP: {
+                    allDatawords = false;
+                    const jmpTarget = address + (NXT.VirtualMachine.Int16.cast(codeword.args[0]) *2);
+                    code.appendChild(renderAddress(jmpTarget));
+                    break;
+                }
+                case NXT.VirtualMachine.Opcodes.BRCMP: {
+                    allDatawords = false;
+                    const cmpOpcode = document.createElement('span');
+                    cmpOpcode.innerText = NXT.VirtualMachine.CompareOpcodes[codeword.cmpOpcode];
+                    code.appendChild(cmpOpcode);
+                    const jmpTarget = address + (NXT.VirtualMachine.Int16.cast(codeword.args[0]) *2);
+                    code.appendChild(renderAddress(jmpTarget));
+                    code.appendChild(renderVariable(codeword.args[1]));
+                    code.appendChild(renderVariable(codeword.args[2]));
+                    break;
+                }
+                case NXT.VirtualMachine.Opcodes.BRTST: {
+                    allDatawords = false;
+                    const cmpOpcode = document.createElement('span');
+                    cmpOpcode.innerText = NXT.VirtualMachine.CompareOpcodes[codeword.cmpOpcode];
+                    code.appendChild(cmpOpcode);
+                    const jmpTarget = address + (NXT.VirtualMachine.Int16.cast(codeword.args[0]) *2);
+                    code.appendChild(renderAddress(jmpTarget));
+                    code.appendChild(renderVariable(codeword.args[1]));
+                    break;
+                }
+                case NXT.VirtualMachine.Opcodes.FINCLUMP:
+                    allDatawords = false;
+                    const start = document.createElement('span');
+                    start.innerText = codeword.args[0];
+                    code.appendChild(start);
+                    const end = document.createElement('span');
+                    end.innerText = codeword.args[1];
+                    code.appendChild(end);
+                    break;
+                case NXT.VirtualMachine.Opcodes.FINCLUMPIMMED: {
+                    allDatawords = false;
+                    const clump = document.createElement('span');
+                    clump.innerText = codeword.args[0];
+                    code.appendChild(clump);
+                    break;
+                }
+                case NXT.VirtualMachine.Opcodes.SUBCALL: {
+                    allDatawords = false;
+                    const clump = document.createElement('span');
+                    clump.innerText = codeword.args[0];
+                    code.appendChild(clump);
+                    code.appendChild(renderVariable(codeword.args[1]));
+                    break;
+                }
+                case NXT.VirtualMachine.Opcodes.SYSCALL:
+                    allDatawords = false;
+                    const cmpOpcode = document.createElement('span');
+                    cmpOpcode.innerText = NXT.VirtualMachine.SystemCalls[codeword.args[0]];
+                    code.appendChild(cmpOpcode);
+                    code.appendChild(renderVariable(codeword.args[1]));
+                    break;
+                case NXT.VirtualMachine.Opcodes.SETIN: {
+                    allDatawords = false;
+                    code.appendChild(renderVariable(codeword.args[0]));
+                    code.appendChild(renderVariable(codeword.args[1]));
+                    const constant = document.createElement('span');
+                    constant.innerText = codeword.args[2];
+                    code.appendChild(constant);
+                    break;
+                }
+                case NXT.VirtualMachine.Opcodes.SETOUT: {
+                    allDatawords = false;
+                    code.appendChild(renderVariable(codeword.args[0]));
+                    for (let i = 0; i < codeword.args.length; i++) {
+                        if ((i -1) % 2) {
+                            code.appendChild(renderVariable(codeword.args[i]));
+                        } else {
+                            const constant = document.createElement('span');
+                            constant.innerText = codeword.args[i];
+                            code.appendChild(constant);
+                        }
+                    }
+                    break;
+                }
+                case NXT.VirtualMachine.Opcodes.GETIN: {
+                    allDatawords = false;
+                    code.appendChild(renderVariable(codeword.args[0]));
+                    code.appendChild(renderVariable(codeword.args[1]));
+                    const constant = document.createElement('span');
+                    constant.innerText = codeword.args[2];
+                    code.appendChild(constant);
+                    break;
+                }
+                case NXT.VirtualMachine.Opcodes.GETOUT: {
+                    allDatawords = false;
+                    code.appendChild(renderVariable(codeword.args[0]));
+                    code.appendChild(renderVariable(codeword.args[1]));
+                    const constant = document.createElement('span');
+                    constant.innerText = codeword.args[2];
+                    code.appendChild(constant);
+                    break;
+                }
+                }
+                if (allDatawords)
+                    for (const arg of codeword.args)
+                        code.appendChild(renderVariable(arg));
+                codespace.appendChild(code);
+            }
+        }
+
+        const background = '#122912';
+        const foreground = '#000000';
+        function draw() {
+            // pipe screen
+            for (let y = 0; y < render.height; y++) {
+                for (let x = 0; x < render.width; x++) {
+                    ctx.fillStyle = render.frame[x][y] ? foreground : background;
+                    ctx.fillRect(x, (render.height - y) -1, 1,1);
+                }
+            }
+
+            dataspaceList.innerHTML = '';
+            dataspaceList.appendChild(renderDataspaceList());
+            renderCodeSpace();
+
+            requestAnimationFrame(draw);
+        }; draw();
+    </script>
+</body>
+</html>

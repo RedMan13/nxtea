@@ -1,0 +1,18 @@
+#define SCREEN_HORIZONTAL_CENTER 50
+#define IMAGE_HALF_WIDTH 36
+
+task main() {
+    byte graphicParams[4] = {0,0,0,0};
+    ClearScreen();
+    TextOut(5, LCD_LINE1, "NXT buttons are");
+    TextOut(5, LCD_LINE2, "mapped to arrow");
+    TextOut(40, LCD_LINE3, "keys.");
+
+    while (true) {
+        graphicParams[0] = ButtonPressed(BTNLEFT, false);
+        graphicParams[1] = ButtonPressed(BTNCENTER, false);
+        graphicParams[2] = ButtonPressed(BTNRIGHT, false);
+        graphicParams[3] = ButtonPressed(BTNEXIT, false);
+        GraphicOutEx(SCREEN_HORIZONTAL_CENTER - IMAGE_HALF_WIDTH, 0, "demo.ric", graphicParams);
+    }
+}

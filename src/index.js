@@ -50,6 +50,12 @@ function toPower(num, name) {
         process.exit(0);
     }
 
+        /**
+         * @typedef {object} iNXT The type for the NXT global
+         * @prop {import('./virtual-machine.js')} VirtualMachine The virtual machine, for executing.
+         * @prop {import('./nxt-communication.js')} NXTCommunication The communication manager.
+         * @prop {import('nxtRICfileUtil')} Renderer The renderer.
+         */
     // setup the VM, we may not need it but it will definitly be helpful
     const root = path.dirname(args.executable ?? process.cwd() + '/rizz');
     const vm = new VirtualMachine();
@@ -61,7 +67,7 @@ function toPower(num, name) {
         render.draw('Line', opts.value, pos1.get(0), pos1.get(1), pos2.get(0), pos2.get(1));
     vm.syscalls[VirtualMachine.SystemCalls.DrawPicture] = (ret, pos, file, args, opts) => {
         const ctx = decodeBinnary(fs.readFileSync(file.asString()));
-        render.draw('RICDraw', opts.value, pos.get(0), pos.get(1), ctx, args);
+        render.draw('RICDraw', opts.value, pos.get(0), pos.get(1), ctx, args.slice());
     }
     vm.syscalls[VirtualMachine.SystemCalls.DrawPoint] = (ret, pos, opts) =>
         render.draw('Pixel', opts.value, pos.get(0), pos.get(1));
@@ -69,6 +75,26 @@ function toPower(num, name) {
         render.draw('Rectangle', opts.value, pos.get(0), pos.get(1), size.get(0) +1, size.get(1) +1);
     vm.syscalls[VirtualMachine.SystemCalls.DrawText] = (ret, pos, text, opts) => 
         render.draw('TextBox', opts.value, pos.get(0), pos.get(1), text.asString());
+
+    const keys = [
+        { pressed: false, count: 0 },
+        { pressed: false, count: 0 },
+        { pressed: false, count: 0 },
+        { pressed: false, count: 0 }
+    ];
+    vm.syscalls[VirtualMachine.SystemCalls.ReadButton] = (ret, key, pressed, count, reset) => {
+        const internal = keys[key.value];
+        if (!internal) {
+            ret.value = 0xF0;
+            pressed.value = false;
+            count.value = 0;
+            return;
+        }
+
+        pressed.value = internal.pressed;
+        if (reset.value) internal.count = 0;
+        count.value = internal.count;
+    }
     
     // setup communications if needed
     if (args.target) {
@@ -96,7 +122,7 @@ function toPower(num, name) {
                     const serial = await NXTCommunication.bluetoothSearch(args.target);
                     comms = new NXTCommunication(serial, root, vm);
                 }
-                if (!comms.btSerial) await comms.upgrade().catch(err => console.warn('Couldnt upgrade connection to bluetooth.', err.message));
+                if (!comms.btSerial) await comms.upgrade().catch(err => console.warn('Couldnt upgrade connection to bluetooth.', err));
                 if (comms.btSerial) console.log('Finished bluetooth connection');
             }
         }
@@ -247,6 +273,37 @@ function toPower(num, name) {
                 render.draw('TextBox', osc ? 0b000100 : 0b000000, 2, 32, 'No File Provided');
             }, 1000);
         } else {
+            document.on('keydown', async e => {
+                switch (e.code) {
+                default: return;
+                case 'ArrowUp':
+                case 'Enter':
+                case 'KeyW': keys[3].pressed = true; keys[2].count++; break;
+                case 'ArrowDown':
+                case 'Escape':
+                case 'KeyS': keys[0].pressed = true; keys[3].count++; break;
+                case 'ArrowLeft':
+                case 'KeyA': keys[2].pressed = true; keys[0].count++; break;
+                case 'ArrowRight':
+                case 'KeyD': keys[1].pressed = true; keys[1].count++; break;
+                }
+            });
+            document.on('keyup', async e => {
+                switch (e.code) {
+                default: return;
+                case 'ArrowUp':
+                case 'Enter':
+                case 'KeyW': keys[3].pressed = false; break;
+                case 'ArrowDown':
+                case 'Escape':
+                case 'KeyS': keys[0].pressed = false; break;
+                case 'ArrowLeft':
+                case 'KeyA': keys[2].pressed = false; break;
+                case 'ArrowRight':
+                case 'KeyD': keys[1].pressed = false; break;
+                }
+            });
+
             const data = fs.readFileSync(args.executable);
             vm.load(data, args.executable);
             // makeDebugger(vm);
