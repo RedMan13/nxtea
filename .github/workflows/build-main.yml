@@ -21,7 +21,7 @@ jobs:
           node-version: 20.x
       - name: Install dependencies and build site
         run: |
-          npm i
+          npm i --ignore-scripts
           npm run build
       - name: Push main page to Site
         uses: wlixcc/SFTP-Deploy-Action@v1.2.4
