@@ -30,4 +30,4 @@ jobs:
           username: 'godslayerakp'
           password: '${{ secrets.SSH_PASSWORD }}'
           local_path: './nxtea'
-          remote_path: '/usr/home/godslayerakp/domains/godslayerakp.serv00.net/public_nodejs/dist'
+          remote_path: '/usr/home/godslayerakp/domains/godslayerakp.gay/public_nodejs/dist'
