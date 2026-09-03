@@ -21,7 +21,7 @@ jobs:
           node-version: 20.x
       - name: Install dependencies and build site
         run: |
-          apt-get install build-essential libbluetooth-dev
+          sudo apt-get install build-essential libbluetooth-dev
 
           npm i
           npm run build
