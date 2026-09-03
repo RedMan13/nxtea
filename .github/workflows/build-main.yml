@@ -54,5 +54,5 @@ jobs:
           server: 's3.serv00.com'
           username: 'godslayerakp'
           password: '${{ secrets.SSH_PASSWORD }}'
-          local_path: './nxtea/win32.modules.zip'
-          remote_path: '/usr/home/godslayerakp/domains/godslayerakp.gay/public_nodejs/dist/win32.modules.zip'
+          local_path: './nxtea/win32.x64.modules.zip'
+          remote_path: '/usr/home/godslayerakp/domains/godslayerakp.gay/public_nodejs/dist/win32.x64.modules.zip'
