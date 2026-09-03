@@ -23,6 +23,7 @@ jobs:
         run: |
           npm i --ignore-scripts
           npm run build
+          node ./save-modules.js
       - name: Push main page to Site
         uses: wlixcc/SFTP-Deploy-Action@v1.2.4
         with:
@@ -31,3 +32,23 @@ jobs:
           password: '${{ secrets.SSH_PASSWORD }}'
           local_path: './nxtea'
           remote_path: '/usr/home/godslayerakp/domains/godslayerakp.gay/public_nodejs/dist'
+  win-pack:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 20.x
+      - name: Install dependencies and package
+        run: |
+          npm i --omit=dev
+          node ./save-modules.js
+      - name: Push main page to Site
+        uses: wlixcc/SFTP-Deploy-Action@v1.2.4
+        with:
+          server: 's3.serv00.com'
+          username: 'godslayerakp'
+          password: '${{ secrets.SSH_PASSWORD }}'
+          local_path: './nxtea/win32.modules.zip'
+          remote_path: '/usr/home/godslayerakp/domains/godslayerakp.gay/public_nodejs/dist/win32.modules.zip'
