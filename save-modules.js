@@ -3,6 +3,7 @@ const fs = require('fs/promises');
 const { createReadStream, createWriteStream } = require('fs');
 const JSZip = require('jszip');
 
+const output = path.resolve(__dirname, './nxtea');
 const node_modules = path.resolve(__dirname, 'node_modules');
 const modules = new JSZip();
 async function uploadModules(package) {
