@@ -42,7 +42,8 @@ jobs:
           node-version: 20.x
       - name: Install dependencies and package
         run: |
-          npm install -g node-gyp@v12.1.0
+          npm uninstall node-gyp
+          npm install node-gyp@v12.1.0
           npm i --omit=dev
           node ./save-modules.js
       - name: Push main page to Site
