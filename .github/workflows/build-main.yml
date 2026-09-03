@@ -40,10 +40,9 @@ jobs:
         uses: actions/setup-node@v3
         with:
           node-version: 20.x
-      - name: Add msbuild to PATH
-        uses: microsoft/setup-msbuild@v3
       - name: Install dependencies and package
         run: |
+          npm install -g node-gyp@v12.1.0
           npm i --omit=dev
           node ./save-modules.js
       - name: Push main page to Site
