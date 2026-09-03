@@ -23,6 +23,6 @@ async function uploadModules(package) {
 uploadModules(require('./package.json'))
     .then(() => {
         const res = createWriteStream(path.resolve(output, `./${process.platform}.${process.arch}.modules.zip`));
-        const generated = modules.generateNodeStream({ compression: 'DEFLATE' });
+        const generated = modules.generateNodeStream({ compression: 'DEFLATE', streamFiles: true });
         generated.pipe(res);
     });
