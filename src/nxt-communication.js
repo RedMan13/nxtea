@@ -4,7 +4,7 @@ const usb = !!globalThis.document || globalThis.navigator?.usb
     : new (require('usb')).WebUSB({ allowAllDevices: true });
 const { BluetoothSerialPort } = !!globalThis.document
     ? { BluetoothSerialPort: class { constructor() { throw new ReferenceError('Bluetooth unavailable.') } } }
-    : require("node-bluetooth-serial-port");
+    : require("bluetooth-serial-port");
 
 /**
  * @typedef {{ status: Status, command: Commands, [key: string]: any }} CommandReturn

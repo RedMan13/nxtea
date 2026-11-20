@@ -1,0 +1,5 @@
+#include <NXCDefs.h>
+
+task main() {
+    PlayFileEx("! Startup.rso", 4, false);
+}

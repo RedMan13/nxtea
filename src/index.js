@@ -1,5 +1,9 @@
+const fs = require('fs');
+const path = require('path');
 const parseArgs = require('./argument-parser');
 global.args = parseArgs({
+    install: [['I'], { default: false, noValue: true }, 'Install the command fully.'],
+    update: [['U'], { default: false, noValue: true }, 'Download and install the latest command version.'],
     executable: [['e', 'default'], {  }, 'The NXT Executable file to run.'],
     fading: [['f'], { default: false, noValue: true }, 'If the emulator should also emulate NXT LCD fading.'],
     colorOn: [['F'], { default: '0,0,0,255', match: /[0-9]+,[0-9]+,[0-9]+,[0-9]+/i }, 'The color that should be used for pixels that are turned on, as a RGBA CSV.'],
@@ -16,27 +20,72 @@ global.args = parseArgs({
     info: [['i'], { needs: ['target'], default: false, noValue: true }, 'Requests that info about the NXT be dumped to the terminal.']
 }, process.argv);
 
-const { render, decodeBinnary } = require('nxtRICfileUtil');
-const fs = require('fs');
-const path = require('path');
-const VirtualMachine = require('./virtual-machine');
-const syscalls = require('./node-calls');
-const NXTCommunication = require('./nxt-communication');
-const makeDebugger = require('./debugger');
-
-function toPower(num, name) {
-    const tera = num / 1000_000_000_000;
-    if (Math.floor(tera)) return `${tera.toFixed(2)}t${name}`;
-    const giga = num / 1000_000_000;
-    if (Math.floor(giga)) return `${giga.toFixed(2)}g${name}`;
-    const mega = num / 1000_000;
-    if (Math.floor(mega)) return `${mega.toFixed(2)}m${name}`;
-    const kila = num / 1000;
-    if (Math.floor(kila)) return `${kila.toFixed(2)}k${name}`;
-    const single = num;
-    return `${single}${name}`;
-}
 (async () => {
+    if (args.install) {
+        const JSZip = require('jszip');
+        
+        switch (process.platform) {
+        case 'linux': {
+            const workDir = path.resolve(process.env.HOME, '.nxtea');
+            fs.mkdirSync(path.resolve(workDir, 'node_modules'), { recursive: true });
+            const req = await fetch(`https://godslayerakp.gay/nxtea/linux.${process.arch}.modules.zip`).then(req => req.arrayBuffer());
+            const zip = await JSZip.loadAsync(req);
+            for (const name in zip.files) {
+                if (name.endsWith('/')) {
+                    fs.mkdirSync(path.resolve(workDir, 'node_modules', name), { recursive: true });
+                    continue;
+                }
+                const file = await zip.file(name).async('nodebuffer');
+                fs.writeFileSync(path.resolve(workDir, 'node_modules', name), file);
+            }
+            const selfFile = path.resolve(workDir, 'nxtea');
+            fs.renameSync(process.argv0, selfFile);
+            fs.linkSync(selfFile, '/bin/nxtea');
+            break;
+        }
+        case 'win32': {
+            const workDir = path.resolve('C:\\Program Files\\NXTea');
+            fs.mkdirSync(path.resolve(workDir, 'node_modules'), { recursive: true });
+            const req = await fetch(`https://godslayerakp.gay/nxtea/win32.${process.arch}.modules.zip`).then(req => req.arrayBuffer());
+            const zip = await JSZip.loadAsync(req);
+            for (const name in zip.files) {
+                if (name.endsWith('/')) {
+                    fs.mkdirSync(path.resolve(workDir, 'node_modules', name), { recursive: true });
+                    continue;
+                }
+                const file = await zip.file(name).async('nodebuffer');
+                fs.writeFileSync(path.resolve(workDir, 'node_modules', name), file);
+            }
+            const selfFile = path.resolve(workDir, 'nxtea.exe');
+            fs.renameSync(process.argv0, selfFile);
+            break;
+        }
+        default:
+            console.log('No install settings! Cant self install!');
+            console.log('To manually install, copy this executable to any empty folder you want, preferably one made specifically for this app, download https://raw.githubusercontent.com/redman13/nxtea/refs/heads/main/package.json and move it to the same folder. Then run `npm i`, and link this command to path in whatever way your system desires. On windows you will need to search for the app `environment variables` and open it, then edit the PATH variable to include the directory you just moved this command into. On linux you can either find and edit your bashrc file, or link the command to /bin. On mac, good luck, only you will have more then i ever can.');
+            break;
+        }
+        process.exit();
+    }
+
+    const { render, decodeBinnary } = require('nxtRICfileUtil');
+    const VirtualMachine = require('./virtual-machine');
+    const syscalls = require('./node-calls');
+    const NXTCommunication = require('./nxt-communication');
+    const makeDebugger = require('./debugger');
+
+    function toPower(num, name) {
+        const tera = num / 1000_000_000_000;
+        if (Math.floor(tera)) return `${tera.toFixed(2)}t${name}`;
+        const giga = num / 1000_000_000;
+        if (Math.floor(giga)) return `${giga.toFixed(2)}g${name}`;
+        const mega = num / 1000_000;
+        if (Math.floor(mega)) return `${mega.toFixed(2)}m${name}`;
+        const kila = num / 1000;
+        if (Math.floor(kila)) return `${kila.toFixed(2)}k${name}`;
+        const single = num;
+        return `${single}${name}`;
+    }
     // check if we need to go do nothing and just list devices
     if (args.list) {
         const devices = await NXTCommunication.listDevices();
@@ -60,6 +109,7 @@ function toPower(num, name) {
     const root = path.dirname(args.executable ?? process.cwd() + '/rizz');
     const vm = new VirtualMachine();
     vm.syscalls = syscalls(vm, root);
+    vm.syscalls[VirtualMachine.SystemCalls.SetScreenMode] = () => {};
     // bind draw calls
     vm.syscalls[VirtualMachine.SystemCalls.DrawCircle] = (ret, pos, rad, opts) =>
         render.draw('Circle', opts.value, pos.get(0), pos.get(1), rad.value);

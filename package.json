@@ -6,20 +6,23 @@
     "build": "webpack",
     "test": "webpack-dev-server"
   },
+  "buildCommand": "webpack",
+  "buildOutput": "./nxtea",
   "keywords": [],
   "author": "",
   "license": "ISC",
   "description": "",
   "dependencies": {
-    "3d-core-raub": "^4.3.0",
-    "glfw-raub": "^5.7.0",
-    "image-raub": "^4.3.0",
-    "node-bluetooth-serial-port": "^3.0.2",
+    "@audio/speaker": "^2.5.1",
+    "@node-3d/core": "^6.4.1",
+    "bluetooth-serial-port": "^3.0.7",
+    "@node-3d/glfw": "^7.4.1",
+    "@node-3d/image": "^6.0.3",
+    "@node-3d/webgl": "^6.0.3",
+    "jszip": "^3.10.1",
     "nxtRICfileUtil": "github:RedMan13/nxtRICfileUtil#main",
     "twgl.js": "^7.0.0",
-    "usb": "^2.16.0",
-    "webgl-raub": "^4.2.0",
-    "jszip": "^3.10.1"
+    "usb": "^2.16.0"
   },
   "devDependencies": {
     "@babel/preset-env": "^7.29.7",
@@ -34,11 +37,32 @@
   "pkg": {
     "scripts": "./src/**/*.js",
     "assets": [
-      "./src/sprite.frag.glsl",
-      "./src/sprite.vert.glsl",
-      "./package.json"
+      "node_modules/**/prebuild/**/*.*",
+      "node_modules/**/build/**/*.*",
+      "node_modules/**/*.node",
+      "node_modules/deps-opengl-raub/**/*",
+      "node_modules/deps-freeimage-raub/**/*",
+      "src/sprite.frag.glsl",
+      "src/sprite.vert.glsl",
+      "package.json"
     ],
-    "targets": [],
+    "targets": [
+      "node24-linux",
+      "node24-win",
+      "node24-mac"
+    ],
     "outputPath": "./nxtea"
+  },
+  "allowScripts": {
+    "usb@2.18.0": true,
+    "@node-3d/webgl": true,
+    "@node-3d/segfault": true,
+    "@node-3d/image": true,
+    "@node-3d/glfw": true,
+    "esbuild@0.28.2": true,
+    "@node-3d/deps-opengl": true,
+    "@node-3d/uv-loop": true,
+    "@node-3d/deps-freeimage": true,
+    "bluetooth-serial-port@3.0.7": true
   }
 }

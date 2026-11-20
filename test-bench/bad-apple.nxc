@@ -1,3 +1,5 @@
+#include <NXCDefs.h>
+
 #define BUFFER_LENGTH 9000
 #define STREAM_WIDTH 20
 #define STREAM_HEIGHT 16

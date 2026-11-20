@@ -1,13 +1,15 @@
 const { render } = require('nxtRICfileUtil');
 const fs = require('fs');
 const twgl = require('twgl.js');
-const { init } = require('3d-core-raub');
-const { requestAnimationFrame, document, canvas, gl } = init({
+const { init } = require('@node-3d/core');
+const { raf: requestAnimationFrame, doc: document } = init({
     isWebGL2: true,
     isGles3: true,
     resizable: false,
     title: 'NXT Emulator'
 });
+const canvas = document;
+const gl = canvas.context;
 document.width = render.width * args.pixelSize;
 document.height = render.height * args.pixelSize;
 document.getElementById = () => {};
